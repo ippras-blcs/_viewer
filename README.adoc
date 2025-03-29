@@ -1,0 +1,34 @@
+= BLC
+
+== Links
+
+* link:https://www.youtube.com/watch?v=zUvHkkkrmIY[Rust plot a sensor value in real time]
+* link:https://www.youtube.com/watch?v=DfOLDv1RnEg[Rust egui brainflow real time plot]
+
+* link:https://docs.rs/ewebsock/0.6.0/ewebsock/index.html[ewebsock]
+
+* link:[]
+* link:[]
+
+=== Resampling settings
+
+* every: `x`
+* period: `x`
+[source]
+|---|
+    |---|
+        |---|
+
+* every: `x`
+* period: `2x`
+[source]
+|---|
+  |---|
+    |---|
+
+* every: `2x`
+* period: `x`
+[source]
+|---|
+        |---|
+                |---|
