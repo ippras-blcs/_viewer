@@ -1,70 +1,57 @@
-use crate::app::panes::pane::table::Settings;
-use egui::{
-    emath::OrderedFloat,
-    util::cache::{ComputerMut, FrameCache},
+use crate::{
+    app::{
+        metadata::MetaDataFrame,
+        panes::table::{Order, Settings, Sort},
+    },
+    utils::hashed::Hashed,
 };
+use egui::util::cache::{ComputerMut, FrameCache};
 use polars::prelude::*;
-use std::hash::{Hash, Hasher};
+use tracing::instrument;
 
-// const ROUND_DECIMALS: u32 = 6;
+/// Processed computed
+pub(crate) type Computed = FrameCache<Value, Computer>;
 
-/// Table computed
-pub(in crate::app) type Computed = FrameCache<Value, Computer>;
-
-/// Table computer
+/// Processed computer
 #[derive(Default)]
-pub(in crate::app) struct Computer;
+pub(crate) struct Computer;
+
+impl Computer {
+    #[instrument(skip(self), err)]
+    fn try_compute(&mut self, key: Key) -> PolarsResult<Value> {
+        let mut lazy_frame = key.frame.data.clone().lazy();
+        // Filter
+        for identifier in &key.settings.filter.identifiers {
+            lazy_frame = lazy_frame.filter(col("Identifier").neq(lit(*identifier)));
+        }
+        // Sort
+        let mut sort_options = SortMultipleOptions::default();
+        if let Order::Descending = key.settings.order {
+            sort_options = sort_options
+                .with_order_descending(true)
+                .with_nulls_last(true);
+        }
+        lazy_frame = match key.settings.sort {
+            Sort::Identifier => lazy_frame.sort_by_exprs([col("Identifier")], sort_options),
+            Sort::Timestamp => lazy_frame.sort_by_exprs([col("Timestamp")], sort_options),
+            Sort::Value => lazy_frame.sort_by_exprs([last()], sort_options),
+        };
+        lazy_frame.collect()
+    }
+}
 
 impl ComputerMut<Key<'_>, Value> for Computer {
     fn compute(&mut self, key: Key) -> Value {
-        let mut lazy_frame = key
-            .data_frame
-            .clone()
-            .lazy()
-            .sort(["Time"], Default::default());
-        let every = Duration::parse(&format!("{}s", key.downsampling.every));
-        let period = Duration::parse(&format!("{}s", key.downsampling.period));
-        lazy_frame = lazy_frame
-            .group_by_dynamic(
-                col("Time"),
-                [],
-                DynamicGroupOptions {
-                    every,
-                    period,
-                    offset: Duration::parse("0"),
-                    ..Default::default()
-                },
-            )
-            .agg([nth(1).median().round(ROUND_DECIMALS)]);
-        // .agg([col(name)
-        //     .sort_by([col(name).abs()], Default::default())
-        //     .last()]);
-        lazy_frame.collect().unwrap()
+        self.try_compute(key).unwrap()
     }
 }
 
-/// Key
-#[derive(Clone, Copy, Debug)]
-pub(in crate::app) struct Key<'a> {
-    pub(in crate::app) data_frame: &'a DataFrame,
-    pub(in crate::app) settings: &'a Settings,
+/// Processed key
+#[derive(Clone, Copy, Debug, Hash, PartialEq)]
+pub(crate) struct Key<'a> {
+    pub(crate) frame: &'a Hashed<MetaDataFrame>,
+    pub(crate) settings: &'a Settings,
 }
 
-impl Hash for Key<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Ok(names) = self.data_frame[0].str() {
-            for name in names {
-                name.hash(state);
-            }
-        }
-        if let Ok(values) = self.data_frame[1].f64() {
-            for value in values {
-                value.map(OrderedFloat).hash(state);
-            }
-        }
-        self.settings.hash(state);
-    }
-}
-
-/// Value
+/// Processed value
 type Value = DataFrame;

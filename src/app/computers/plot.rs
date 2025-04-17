@@ -1,14 +1,20 @@
-use crate::app::panes::settings::Settings;
-use egui::{
-    emath::OrderedFloat,
-    util::cache::{ComputerMut, FrameCache},
+use crate::{
+    app::{
+        metadata::{MetaDataFrame, NAME},
+        panes::plot::Settings,
+    },
+    utils::hashed::Hashed,
 };
-use polars::prelude::*;
-use std::{
-    hash::{Hash, Hasher},
-    iter::zip,
-};
+use egui::util::cache::{ComputerMut, FrameCache};
+use polars::{frame::group_by, prelude::*};
+use std::{collections::BTreeMap, iter::zip};
+use tracing::instrument;
 
+const IDENTIFIER: &str = "Identifier";
+const TIMESTAMP: &str = "Timestamp";
+const POINTS: &str = "Points";
+const X: &str = "X";
+const Y: &str = "Y";
 const ROUND_DECIMALS: u32 = 6;
 
 /// Plot computed
@@ -18,162 +24,193 @@ pub(in crate::app) type Computed = FrameCache<Value, Computer>;
 #[derive(Default)]
 pub(in crate::app) struct Computer;
 
-impl ComputerMut<Key<'_>, Value> for Computer {
-    fn compute(&mut self, key: Key) -> Value {
+impl Computer {
+    #[instrument(skip(self), err)]
+    fn try_compute(&mut self, key: Key) -> PolarsResult<Value> {
         let mut value = Value::default();
-        let lazy_frame = key
-            .data_frame
-            .clone()
-            .lazy()
-            .sort(["Time"], Default::default());
+        let mut lazy_frame = key.frame.data.clone().lazy();
+        lazy_frame = lazy_frame.sort([IDENTIFIER, TIMESTAMP], Default::default());
+        println!("lazy_frame: {}", lazy_frame.clone().collect().unwrap());
+        // All
+        // lazy_frame = lazy_frame.with_columns([
+        //     col(TIMESTAMP).cast(DataType::Float64) / lit(1000),
+        //     last().cast(DataType::Float64),
+        // ]);
         // Source
-        let data_frame = lazy_frame
-            .clone()
-            .with_column(col("Time").cast(DataType::Float64) / lit(1000))
-            .collect()
-            .unwrap();
-        let times = data_frame["Time"].f64().unwrap();
-        let values = data_frame[1].f64().unwrap();
-        value.source = zip(times, values)
-            .filter_map(|(time, value)| Some([time?, value?]))
-            .collect();
+        value.source = source(lazy_frame.clone())?;
+
         // Resampling
-        if key.settings.resampling.mean || key.settings.resampling.median {
-            let every = Duration::parse(&format!("{}s", key.settings.resampling.every));
-            let period = Duration::parse(&format!("{}s", key.settings.resampling.period));
-            let mut aggs = vec![];
-            if key.settings.resampling.mean {
-                aggs.push(nth(1).mean().round(ROUND_DECIMALS).alias("ResamplingMean"));
-            }
-            if key.settings.resampling.median {
-                aggs.push(
-                    nth(1)
-                        .median()
-                        .round(ROUND_DECIMALS)
-                        .alias("ResamplingMedian"),
-                );
-            }
-            let data_frame = lazy_frame
-                .clone()
-                .group_by_dynamic(
-                    col("Time"),
-                    [],
-                    DynamicGroupOptions {
-                        every,
-                        period,
-                        offset: Duration::parse("0"),
-                        ..Default::default()
-                    },
-                )
-                .agg(aggs)
-                .with_column(col("Time").cast(DataType::Float64) / lit(1000))
-                .collect()
-                .unwrap();
-            let times = data_frame["Time"].f64().unwrap();
-            if key.settings.resampling.mean {
-                let values = data_frame["ResamplingMean"].f64().unwrap();
-                value.resampling.mean = zip(times, values)
-                    .map(|(time, value)| Some([time?, value?]))
-                    .collect();
-            }
-            if key.settings.resampling.median {
-                let values = data_frame["ResamplingMedian"].f64().unwrap();
-                value.resampling.median = zip(times, values)
-                    .map(|(time, value)| Some([time?, value?]))
-                    .collect();
-            }
+        if key.settings.resampling.mean {
+            value.resampling.mean = resampling_mean(lazy_frame.clone(), key)?;
+        }
+        if key.settings.resampling.median {
+            value.resampling.median = resampling_median(lazy_frame.clone(), key)?;
         }
         // Rolling
-        if key.settings.rolling.mean || key.settings.rolling.median {
-            let mut exprs = vec![];
-            if key.settings.rolling.mean {
-                exprs.push(
-                    nth(1)
-                        .rolling_mean(RollingOptionsFixedWindow {
-                            window_size: key.settings.rolling.window_size,
-                            min_periods: key.settings.rolling.min_periods,
-                            ..Default::default()
-                        })
-                        .round(ROUND_DECIMALS)
-                        .alias("RollingMean"),
-                );
-            }
-            if key.settings.rolling.median {
-                exprs.push(
-                    nth(1)
-                        .rolling_median(RollingOptionsFixedWindow {
-                            window_size: key.settings.rolling.window_size,
-                            min_periods: key.settings.rolling.min_periods,
-                            ..Default::default()
-                        })
-                        .round(ROUND_DECIMALS)
-                        .alias("RollingMedian"),
-                );
-            }
-            let data_frame = lazy_frame
-                .with_columns(exprs)
-                .with_column(col("Time").cast(DataType::Float64) / lit(1000))
-                .collect()
-                .unwrap();
-            let times = data_frame["Time"].f64().unwrap();
-            if key.settings.rolling.mean {
-                let values = data_frame["RollingMean"].f64().unwrap();
-                value.rolling.mean = zip(times, values)
-                    .map(|(time, value)| Some([time?, value?]))
-                    .collect();
-            }
-            if key.settings.rolling.median {
-                let values = data_frame["RollingMedian"].f64().unwrap();
-                value.rolling.median = zip(times, values)
-                    .map(|(time, value)| Some([time?, value?]))
-                    .collect();
-            }
+        if key.settings.rolling.mean {
+            value.rolling.mean = rolling_mean(lazy_frame.clone(), key)?;
         }
-        value
+        if key.settings.rolling.median {
+            value.rolling.median = rolling_median(lazy_frame, key)?;
+        }
+        Ok(value)
+    }
+}
+
+impl ComputerMut<Key<'_>, Value> for Computer {
+    fn compute(&mut self, key: Key) -> Value {
+        self.try_compute(key).unwrap()
     }
 }
 
 /// Key
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub(in crate::app) struct Key<'a> {
-    pub(in crate::app) data_frame: &'a DataFrame,
-    pub(in crate::app) settings: &'a Settings,
-}
-
-impl Hash for Key<'_> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        if let Ok(times) = self.data_frame[0].str() {
-            for time in times {
-                time.hash(state);
-            }
-        }
-        if let Ok(values) = self.data_frame[1].f64() {
-            for value in values {
-                value.map(OrderedFloat).hash(state);
-            }
-        }
-        self.settings.hash(state);
-    }
+    pub(crate) frame: &'a Hashed<MetaDataFrame>,
+    pub(crate) settings: &'a Settings,
 }
 
 /// Value
-// type Value = DataFrame;
-// type Value = Vec<[f64; 2]>;
 #[derive(Clone, Debug, Default)]
 pub(in crate::app) struct Value {
-    pub(in crate::app) source: Vec<[f64; 2]>,
+    pub(in crate::app) source: BTreeMap<u64, Vec<[f64; 2]>>,
     pub(in crate::app) resampling: Resampling,
     pub(in crate::app) rolling: Rolling,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::app) struct Resampling {
-    pub(in crate::app) mean: Option<Vec<[f64; 2]>>,
-    pub(in crate::app) median: Option<Vec<[f64; 2]>>,
+    pub(in crate::app) mean: BTreeMap<u64, Vec<[f64; 2]>>,
+    pub(in crate::app) median: BTreeMap<u64, Vec<[f64; 2]>>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub(in crate::app) struct Rolling {
-    pub(in crate::app) mean: Option<Vec<[f64; 2]>>,
-    pub(in crate::app) median: Option<Vec<[f64; 2]>>,
+    pub(in crate::app) mean: BTreeMap<u64, Vec<[f64; 2]>>,
+    pub(in crate::app) median: BTreeMap<u64, Vec<[f64; 2]>>,
+}
+
+fn source(lazy_frame: LazyFrame) -> PolarsResult<BTreeMap<u64, Vec<[f64; 2]>>> {
+    collect(
+        lazy_frame.group_by([col(IDENTIFIER)]).agg([as_struct(vec![
+            col(TIMESTAMP).alias(X),
+            last().alias(Y),
+        ])
+        .alias(POINTS)]),
+    )
+}
+
+fn resampling_mean(lazy_frame: LazyFrame, key: Key) -> PolarsResult<BTreeMap<u64, Vec<[f64; 2]>>> {
+    let every = Duration::parse(&format!("{}s", key.settings.resampling.every));
+    let period = Duration::parse(&format!("{}s", key.settings.resampling.period));
+    let t = lazy_frame
+        .clone()
+        .group_by_dynamic(
+            col(TIMESTAMP),
+            [col(IDENTIFIER)],
+            DynamicGroupOptions {
+                every,
+                period,
+                offset: Duration::parse("0"),
+                ..Default::default()
+            },
+        )
+        .agg([last().mean()]);
+    println!("data_frame!!!!: {}", t.collect().unwrap());
+    collect(
+        lazy_frame
+            .group_by_dynamic(
+                col(TIMESTAMP),
+                [col(IDENTIFIER)],
+                DynamicGroupOptions {
+                    every,
+                    period,
+                    offset: Duration::parse("0"),
+                    ..Default::default()
+                },
+            )
+            .agg([last().mean()])
+            .group_by([col(IDENTIFIER)])
+            .agg([as_struct(vec![col(TIMESTAMP).alias(X), last().alias(Y)]).alias(POINTS)]),
+    )
+}
+
+fn resampling_median(
+    lazy_frame: LazyFrame,
+    key: Key,
+) -> PolarsResult<BTreeMap<u64, Vec<[f64; 2]>>> {
+    let every = Duration::parse(&format!("{}s", key.settings.resampling.every));
+    let period = Duration::parse(&format!("{}s", key.settings.resampling.period));
+    collect(
+        lazy_frame
+            .group_by_dynamic(
+                col(TIMESTAMP),
+                [col(IDENTIFIER)],
+                DynamicGroupOptions {
+                    every,
+                    period,
+                    offset: Duration::parse("0"),
+                    ..Default::default()
+                },
+            )
+            .agg([last().median()])
+            .group_by([col(IDENTIFIER)])
+            .agg([as_struct(vec![col(TIMESTAMP).alias(X), last().alias(Y)]).alias(POINTS)]),
+    )
+}
+
+fn rolling_mean(lazy_frame: LazyFrame, key: Key) -> PolarsResult<BTreeMap<u64, Vec<[f64; 2]>>> {
+    collect(
+        lazy_frame.group_by([col(IDENTIFIER)]).agg([as_struct(vec![
+            col(TIMESTAMP).alias(X),
+            last()
+                .rolling_mean(RollingOptionsFixedWindow {
+                    window_size: key.settings.rolling.window_size,
+                    min_periods: key.settings.rolling.min_periods,
+                    ..Default::default()
+                })
+                .round(ROUND_DECIMALS)
+                .alias(Y),
+        ])
+        .alias(POINTS)]),
+    )
+}
+
+fn rolling_median(lazy_frame: LazyFrame, key: Key) -> PolarsResult<BTreeMap<u64, Vec<[f64; 2]>>> {
+    collect(
+        lazy_frame.group_by([col(IDENTIFIER)]).agg([as_struct(vec![
+            col(TIMESTAMP).alias(X),
+            last()
+                .rolling_median(RollingOptionsFixedWindow {
+                    window_size: key.settings.rolling.window_size,
+                    min_periods: key.settings.rolling.min_periods,
+                    ..Default::default()
+                })
+                .round(ROUND_DECIMALS)
+                .alias(Y),
+        ])
+        .alias(POINTS)]),
+    )
+}
+
+fn collect(lazy_frame: LazyFrame) -> PolarsResult<BTreeMap<u64, Vec<[f64; 2]>>> {
+    let data_frame = lazy_frame.collect()?;
+    let mut value = BTreeMap::new();
+    for (identifier, points) in zip(
+        data_frame[IDENTIFIER].u64()?.into_no_null_iter(),
+        data_frame[POINTS].list()?.into_no_null_iter(),
+    ) {
+        let x = points.struct_()?.field_by_name(X)?;
+        let y = points.struct_()?.field_by_name(Y)?;
+        value.insert(
+            identifier,
+            zip(
+                x.cast(&DataType::Float64)?.f64()?.into_no_null_iter(),
+                y.cast(&DataType::Float64)?.f64()?.into_no_null_iter(),
+            )
+            .map(|(x, y)| [x, y])
+            .collect(),
+        );
+    }
+    Ok(value)
 }

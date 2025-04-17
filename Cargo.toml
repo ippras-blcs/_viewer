@@ -1,69 +1,80 @@
 [package]
 name = "viewer"
 version = "0.1.0"
+authors = ["Kazakov Giorgi Vladimirovich", "Sidorov Roman Alexandrovich"]
 edition = "2024"
 
 [dependencies]
-anyhow = "1.0.89"
-eframe = { version = "0.29.1", default-features = false, features = [
-    "accesskit",     # Make egui compatible with screen readers. NOTE: adds a lot of dependencies.
-    "default_fonts", # Embed the default egui fonts.
-    "glow",          # Use the glow rendering backend. Alternative: "wgpu".
-    "persistence",   # Enable restoring app state when restarting the app.
+anyhow = "1.0.97"
+arrow = "54.3.1"
+bytes = "1.10.1"
+chrono = { version = "0.4.40", features = ["serde"] }
+eframe = { version = "0.31.1", default-features = false, features = [
+    "accesskit",
+    "default_fonts",
+    "glow",
+    "persistence",
 ] }
-egui = "0.29.1"
-egui-phosphor = "0.7.3"
+egui = "0.31.1"
+egui-phosphor = "0.9.0"
 egui_ext = { git = "https://github.com/kgv/egui_ext" }
-egui_extras = "0.29.1"
-egui_plot = "0.29.0"
-egui_tiles = "0.10.1"
-fluent = "0.16.1"
-fluent_content = "0.0.5"
+egui_extras = "0.31.1"
+egui_l20n = { git = "https://github.com/kgv/egui_l20n", features = ["macros"] }
+egui_plot = "0.31.0"
+egui_table = "0.3.0"
+egui_tiles = "0.12.0"
+egui_tiles_ext = { git = "https://github.com/kgv/egui_tiles_ext" }
 futures = "0.3.31"
-polars = { version = "0.43.1", default-features = false, features = [
-    "dtype-array",      # ?
+indexmap = "2.9.0"
+metadata = { git = "https://github.com/ippras/metadata" }
+object_store = { version = "0.11.0", features = ["http", "serde"] }
+parquet = { version = "54.3.1", features = ["arrow", "async", "object_store"] }
+polars = { version = "0.46.0", default-features = false, features = [
     "dtype-datetime",
-    "dtype-struct",     # ?
+    "dtype-struct",
+    "dtype-u16",
     "dynamic_group_by",
     "fmt_no_tty",
     "lazy",
+    "parquet",
     "rolling_window",
     "round_series",
     "serde",
     "temporal",
+    # "dtype-array",
 ] }
-ron = "0.8.1"
-serde = { version = "1.0.210", features = ["derive"] }
-time = { version = "0.3.36", features = [
+ron = "0.9.0"
+serde = { version = "1.0.219", features = ["derive"] }
+time = { version = "0.3.41", features = [
     "formatting",
     "local-offset",
     "macros",
     "parsing",
     "serde",
 ] }
-tokio = { version = "1.40.0", features = ["rt"] }
-tracing = "0.1.40"
+tokio = { version = "1.44.1", features = ["rt"] }
+tracing = "0.1.41"
 unic-langid = { version = "0.9.5", features = ["macros"] }
 
 google_drive = { git = "https://github.com/ippras-blc/google_drive" }
-timed = { git = "https://github.com/ippras-blc/timed", features = ["serde"] }
+# timed = { git = "https://github.com/ippras-blc/timed", features = ["serde"] }
 
 # native
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 poll-promise = { version = "0.3.0", features = ["tokio"] }
 rumqttc = "0.24.0"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
 # web
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
-ewebsock = "0.7.0"
-getrandom = { version = "0.2.15", features = ["js"] }
+ewebsock = "0.8.0"
+getrandom = "0.3.2"
 poll-promise = { version = "0.3.0", features = ["web"] }
-tokio_with_wasm = { version = "0.7.1", features = ["rt"] }
+tokio_with_wasm = { version = "0.8.2", features = ["rt"] }
 tracing-wasm = "0.2.1"
-wasm-bindgen-futures = "0.4.45"
-web-sys = "0.3.72"                                         # to access the DOM (to hide the loading text)
+wasm-bindgen-futures = "0.4.50"
+web-sys = "0.3.77"                                         # to access the DOM (to hide the loading text)
 # rumqttc = { version = "0.24.0", features = ["websocket"] }
 
 [profile.release]

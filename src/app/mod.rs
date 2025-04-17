@@ -1,58 +1,43 @@
-use self::panes::{
-    behavior::Behavior,
-    pane::{Ddoc, Pane},
+use self::{
+    cloud::GoogleDrive,
+    data::Data,
+    panes::{Ddoc, Pane, behavior::Behavior},
 };
-use crate::{
-    localization::{self, titlecase, Locale, Localization, LOCALIZATION},
-    utils::{TilesExt, TreeExt},
-};
+use crate::{app::metadata::MetaDataFrame, localization::ContextExt as _};
 use anyhow::{Error, Result};
-use cloud::GoogleDrive;
-use eframe::{get_value, set_value, CreationContext, Storage, APP_KEY};
+use arrow::temporal_conversions::timestamp_ms_to_datetime;
+use eframe::{APP_KEY, CreationContext, Storage, get_value, set_value};
 use egui::{
-    menu::bar, warn_if_debug_build, Align, Align2, CentralPanel, Color32, ComboBox, DroppedFile,
-    FontDefinitions, Id, LayerId, Layout, Order, RichText, ScrollArea, SidePanel, Spinner,
-    TextStyle, TopBottomPanel, Ui,
+    Align, Align2, CentralPanel, Color32, ComboBox, DroppedFile, FontDefinitions, Id, LayerId,
+    Layout, Order, RichText, ScrollArea, SidePanel, Spinner, TextStyle, TextWrapMode,
+    TopBottomPanel, Ui, menu::bar, warn_if_debug_build,
 };
 use egui_ext::{DroppedFileExt, HoveredFileExt, LightDarkButton};
+use egui_l20n::{ResponseExt as _, UiExt};
 use egui_phosphor::{
-    add_to_fonts,
+    Variant, add_to_fonts,
     regular::{
-        ARROWS_CLOCKWISE, ARROW_FAT_LEFT, ARROW_FAT_RIGHT, CLOCK, CLOUD_ARROW_DOWN, GRID_FOUR,
-        ROCKET, SIDEBAR, SIDEBAR_SIMPLE, SQUARE_SPLIT_HORIZONTAL, SQUARE_SPLIT_VERTICAL, TABS,
-        TRANSLATE, TRASH,
+        ARROW_FAT_LEFT, ARROW_FAT_RIGHT, ARROWS_CLOCKWISE, CLOCK, CLOUD_ARROW_DOWN, DROP_HALF,
+        GRID_FOUR, QUESTION, ROCKET, SIDEBAR, SIDEBAR_SIMPLE, SQUARE_SPLIT_HORIZONTAL,
+        SQUARE_SPLIT_VERTICAL, TABS, THERMOMETER, TRANSLATE, TRASH,
     },
-    Variant,
 };
 use egui_tiles::{ContainerKind, Tile, Tree};
-use panes::pane::Kind;
+use egui_tiles_ext::{TilesExt as _, TreeExt as _, VERTICAL};
+use metadata::{FILE, ICON, MAX_TIMESTAMP, MIN_TIMESTAMP, NAME};
+use panes::Kind;
 use polars::prelude::*;
-use ron::de;
+use rumqttc::tokio_rustls::rustls::crypto::hmac::Key;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fmt::Write,
     future::Future,
+    io::Cursor,
     str,
-    sync::mpsc::{channel, Receiver, Sender},
-    time::Duration,
+    sync::mpsc::{Receiver, Sender, channel},
 };
-use timed::Timed;
-// use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tracing::{error, info, trace};
-
-const MQTT_ID: &str = "ippras.ru/blc/viewer";
-const MQTT_HOST: &str = "broker.emqx.io";
-const MQTT_PORT: u16 = 1883;
-
-const MQTT_TOPIC: &str = "ippras.ru/blc/#";
-const MQTT_TOPIC_DDOC_C1: &str = "ippras.ru/blc/ddoc/c1"; // mA
-const MQTT_TOPIC_DDOC_C2: &str = "ippras.ru/blc/ddoc/c2"; // mA
-const MQTT_TOPIC_DDOC_T1: &str = "ippras.ru/blc/ddoc/t1"; // °C
-const MQTT_TOPIC_DDOC_T2: &str = "ippras.ru/blc/ddoc/t2"; // °C
-const MQTT_TOPIC_DDOC_V1: &str = "ippras.ru/blc/ddoc/v1"; // mg/L
-const MQTT_TOPIC_DDOC_V2: &str = "ippras.ru/blc/ddoc/v2"; // %
-const MQTT_TOPIC_TEMPERATURE: &str = "ippras.ru/blc/temperature";
-const MQTT_TOPIC_TURBIDITY: &str = "ippras.ru/blc/turbidity";
+use tracing::{error, info, instrument, trace};
 
 const NAME_DDOC_C1: &str = "DDOC.C1";
 const NAME_DDOC_C2: &str = "DDOC.C2";
@@ -60,13 +45,15 @@ const NAME_DDOC_T1: &str = "DDOC.T1";
 const NAME_DDOC_T2: &str = "DDOC.T2";
 const NAME_DDOC_V1: &str = "DDOC.V1";
 const NAME_DDOC_V2: &str = "DDOC.V2";
-const NAME_TEMPERATURE: &str = "Temperature";
-const NAME_TURBIDITY: &str = "Turbidity";
+const NAME_TEMPERATURE: &str = "temperature";
+const NAME_TURBIDITY: &str = "turbidity";
 
-const SIZE: f32 = 32.0;
+const DATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+const MAX_PRECISION: usize = 16;
+const ICON_SIZE: f32 = 32.0;
 
 macro icon($icon:expr) {
-    RichText::new($icon).size(SIZE)
+    RichText::new($icon).size(ICON_SIZE)
 }
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
@@ -77,7 +64,7 @@ pub struct App {
     reactive: bool,
 
     tree: Tree<Pane>,
-    behavior: Behavior,
+    data: Data,
 
     #[serde(skip)]
     google_drive: GoogleDrive,
@@ -99,7 +86,7 @@ impl Default for App {
             reactive: true,
             left_panel: true,
             tree: Tree::empty("tree"),
-            behavior: Default::default(),
+            data: Default::default(),
             google_drive: GoogleDrive::new(data_sender, error_sender.clone()),
             data_receiver,
             error_sender,
@@ -116,8 +103,8 @@ impl App {
         let mut fonts = FontDefinitions::default();
         add_to_fonts(&mut fonts, Variant::Regular);
         cc.egui_ctx.set_fonts(fonts);
-
-        spawn_mqtt(&cc.egui_ctx);
+        cc.egui_ctx.set_localizations();
+        mqtt::spawn(&cc.egui_ctx);
 
         // return Default::default();
         // Load previous app state (if any).
@@ -156,64 +143,39 @@ impl App {
         }) {
             info!(?dropped_files);
             for dropped_file in dropped_files {
-                match deserialize(&dropped_file) {
-                    Ok(data_frame) if data_frame.width() > 1 => {
-                        trace!(?data_frame);
-                        let kind = match data_frame[1].name().as_str() {
-                            NAME_TEMPERATURE => Kind::Temperature,
-                            NAME_TURBIDITY => Kind::Turbidity,
-                            NAME_DDOC_C1 => Kind::Ddoc(Ddoc::C1),
-                            NAME_DDOC_C2 => Kind::Ddoc(Ddoc::C2),
-                            NAME_DDOC_T1 => Kind::Ddoc(Ddoc::T1),
-                            NAME_DDOC_T2 => Kind::Ddoc(Ddoc::T2),
-                            NAME_DDOC_V1 => Kind::Ddoc(Ddoc::V1),
-                            NAME_DDOC_V2 => Kind::Ddoc(Ddoc::V2),
-                            _ => {
-                                error!("Unsupported format");
-                                continue;
-                            }
-                        };
-                        self.tree.insert_pane(Pane {
-                            kind,
-                            data_frame: Some(data_frame),
-                            settings: Default::default(),
-                            view: Default::default(),
-                        });
-                    }
-                    error => {
-                        if let Err(error) = error {
-                            error!(%error);
-                        }
-                        continue;
-                    }
-                };
+                if let Ok(frame) = deserialize(&dropped_file) {
+                    trace!(?frame);
+                    self.data.add(frame);
+                }
             }
         }
     }
 
     fn data(&mut self) {
-        while let Ok(data_frame) = self.data_receiver.try_recv() {
-            let kind = match data_frame[1].name().as_str() {
-                NAME_TEMPERATURE => Kind::Temperature,
-                NAME_TURBIDITY => Kind::Turbidity,
-                NAME_DDOC_C1 => Kind::Ddoc(Ddoc::C1),
-                NAME_DDOC_C2 => Kind::Ddoc(Ddoc::C2),
-                NAME_DDOC_T1 => Kind::Ddoc(Ddoc::T1),
-                NAME_DDOC_T2 => Kind::Ddoc(Ddoc::T2),
-                NAME_DDOC_V1 => Kind::Ddoc(Ddoc::V1),
-                NAME_DDOC_V2 => Kind::Ddoc(Ddoc::V2),
-                _ => {
-                    error!("Unsupported format");
-                    continue;
-                }
-            };
-            self.tree.insert_pane(Pane {
-                kind,
-                data_frame: Some(data_frame),
-                settings: Default::default(),
-                view: Default::default(),
-            });
-        }
+        // while let Ok(data_frame) = self.data_receiver.try_recv() {
+        //     let kind = match data_frame[1].name().as_str() {
+        //         NAME_TEMPERATURE => Kind::Dtec,
+        //         NAME_TURBIDITY => Kind::Atuc,
+        //         NAME_DDOC_C1 => Kind::Ddoc(Ddoc::C1),
+        //         NAME_DDOC_C2 => Kind::Ddoc(Ddoc::C2),
+        //         NAME_DDOC_T1 => Kind::Ddoc(Ddoc::T1),
+        //         NAME_DDOC_T2 => Kind::Ddoc(Ddoc::T2),
+        //         NAME_DDOC_V1 => Kind::Ddoc(Ddoc::V1),
+        //         NAME_DDOC_V2 => Kind::Ddoc(Ddoc::V2),
+        //         _ => {
+        //             error!("Unsupported format");
+        //             continue;
+        //         }
+        //     };
+        //     self.tree.insert_pane::<VERTICAL>(Pane {
+        //         kind,
+        //         source: Some(data_frame),
+        //         target: Default::default(),
+        //         settings: Default::default(),
+        //         state: Default::default(),
+        //         view: Default::default(),
+        //     });
+        // }
     }
 
     fn error(&mut self) {
@@ -248,8 +210,9 @@ impl App {
     // Central panel
     fn central_panel(&mut self, ctx: &egui::Context) {
         CentralPanel::default().show(ctx, |ui| {
-            self.tree.ui(&mut self.behavior, ui);
-            if let Some(id) = self.behavior.close.take() {
+            let mut behavior = Behavior::new();
+            self.tree.ui(&mut behavior, ui);
+            if let Some(id) = behavior.close.take() {
                 self.tree.tiles.remove(id);
             }
         });
@@ -257,13 +220,11 @@ impl App {
 
     // Left panel
     fn left_panel(&mut self, ctx: &egui::Context) {
-        SidePanel::left("left_panel")
-            .frame(egui::Frame::side_top_panel(&ctx.style()))
+        SidePanel::left("LeftPanel")
             .resizable(true)
             .show_animated(ctx, self.left_panel, |ui| {
                 ScrollArea::vertical().show(ui, |ui| {
-                    self.behavior.settings(ui, &mut self.tree);
-                    ui.separator();
+                    self.data.show(ui, &mut self.tree);
                 });
             });
     }
@@ -274,18 +235,18 @@ impl App {
             bar(ui, |ui| {
                 // Left panel
                 ui.toggle_value(&mut self.left_panel, icon!(SIDEBAR_SIMPLE))
-                    .on_hover_text(titlecase!("left_panel"));
+                    .on_hover_text(ui.localize("left_panel"));
                 ui.separator();
-                ui.light_dark_button(SIZE);
+                ui.light_dark_button(ICON_SIZE);
                 ui.separator();
                 ui.toggle_value(&mut self.reactive, icon!(ROCKET))
                     .on_hover_text("reactive")
-                    .on_hover_text(titlecase!("reactive_description_enabled"))
-                    .on_disabled_hover_text(titlecase!("reactive_description_disabled"));
+                    .on_hover_text(ui.localize("reactive_description_enabled"))
+                    .on_disabled_hover_text(ui.localize("reactive_description_disabled"));
                 ui.separator();
                 if ui
                     .button(icon!(TRASH))
-                    .on_hover_text(titlecase!("reset_application"))
+                    .on_hover_text(ui.localize("reset_application"))
                     .clicked()
                 {
                     *self = Default::default();
@@ -293,15 +254,16 @@ impl App {
                 ui.separator();
                 if ui
                     .button(icon!(ARROWS_CLOCKWISE))
-                    .on_hover_text(titlecase!("reset_gui"))
+                    .on_hover_text(ui.localize("reset_gui"))
                     .clicked()
                 {
                     ui.memory_mut(|memory| *memory = Default::default());
+                    ui.ctx().set_localizations();
                 }
                 ui.separator();
                 if ui
                     .button(icon!(SQUARE_SPLIT_VERTICAL))
-                    .on_hover_text(titlecase!("vertical"))
+                    .on_hover_text(ui.localize("vertical"))
                     .clicked()
                 {
                     if let Some(id) = self.tree.root {
@@ -312,7 +274,7 @@ impl App {
                 }
                 if ui
                     .button(icon!(SQUARE_SPLIT_HORIZONTAL))
-                    .on_hover_text(titlecase!("horizontal"))
+                    .on_hover_text(ui.localize("horizontal"))
                     .clicked()
                 {
                     if let Some(id) = self.tree.root {
@@ -323,7 +285,7 @@ impl App {
                 }
                 if ui
                     .button(icon!(GRID_FOUR))
-                    .on_hover_text(titlecase!("grid"))
+                    .on_hover_text(ui.localize("grid"))
                     .clicked()
                 {
                     if let Some(id) = self.tree.root {
@@ -334,7 +296,7 @@ impl App {
                 }
                 if ui
                     .button(icon!(TABS))
-                    .on_hover_text(titlecase!("tabs"))
+                    .on_hover_text(ui.localize("tabs"))
                     .clicked()
                 {
                     if let Some(id) = self.tree.root {
@@ -351,58 +313,48 @@ impl App {
                             && candidate.is_real_time() == pane.is_real_time()
                     });
                     if ui
-                        .selectable_label(tile_id.is_some(), pane.text())
-                        .on_hover_text(pane.hover_text())
+                        .selectable_label(tile_id.is_some(), ui.localize(pane.text()))
+                        .on_hover_text(ui.localize(pane.hover_text()))
                         .clicked()
                     {
                         if let Some(id) = tile_id {
                             self.tree.tiles.remove(id);
                         } else {
-                            self.tree.insert_pane(pane);
+                            self.tree.insert_pane::<VERTICAL>(pane);
                         }
                     }
                 };
                 ui.menu_button(icon!(CLOCK), |ui| {
                     // Temperature
-                    toggle(ui, Pane::TEMPERATURE);
-                    toggle(ui, Pane::TURBIDITY);
+                    toggle(ui, Pane::DTEC);
+                    toggle(ui, Pane::ATUC);
                     // DDOC
-                    ui.menu_button(titlecase!("ddoc"), |ui| {
-                        toggle(ui, Pane::DDOC_V1);
-                        toggle(ui, Pane::DDOC_V2);
-                        toggle(ui, Pane::DDOC_T1);
-                        toggle(ui, Pane::DDOC_T2);
-                        toggle(ui, Pane::DDOC_C1);
-                        toggle(ui, Pane::DDOC_C2);
-                    })
+                    ui.menu_button(
+                        ui.localize("digital_disolved_oxygen_controller.abbreviation"),
+                        |ui| {
+                            toggle(ui, Pane::DDOC_V1);
+                            toggle(ui, Pane::DDOC_V2);
+                            toggle(ui, Pane::DDOC_T1);
+                            toggle(ui, Pane::DDOC_T2);
+                            toggle(ui, Pane::DDOC_C1);
+                            toggle(ui, Pane::DDOC_C2);
+                        },
+                    )
                     .response
-                    .on_disabled_hover_text("text");
+                    .on_disabled_hover_localized("digital_disolved_oxygen_controller.hover");
                 })
                 .response
-                .on_hover_text(titlecase!("in_real_time"));
-                // Open cloud saved
-                ui.menu_button(icon!(CLOUD_ARROW_DOWN), |ui| {
-                    self.google_drive.ui(ui);
-                })
-                .response
-                .on_hover_text(titlecase!("cloud_saved"));
+                .on_hover_text(ui.localize("in_real_time"));
+                // // Open cloud saved
+                // ui.menu_button(icon!(CLOUD_ARROW_DOWN), |ui| {
+                //     self.google_drive.ui(ui);
+                // })
+                // .response
+                // .on_hover_text(ui.localize("cloud_saved"));
 
                 ui.separator();
                 // Locale
-                ui.menu_button(icon!(TRANSLATE), |ui| {
-                    let mut locale = LOCALIZATION.read().unwrap().locale();
-                    let mut changed = ui
-                        .selectable_value(&mut locale, Locale::En, Locale::En.text())
-                        .changed();
-                    changed |= ui
-                        .selectable_value(&mut locale, Locale::Ru, Locale::Ru.text())
-                        .changed();
-                    if changed {
-                        *LOCALIZATION.write().unwrap() = Localization::new(locale);
-                    }
-                })
-                .response
-                .on_hover_text(titlecase!("language"));
+                ui.locale_button();
             });
         });
     }
@@ -427,6 +379,48 @@ impl eframe::App for App {
     }
 }
 
+#[instrument(err)]
+fn deserialize(dropped_file: &DroppedFile) -> Result<MetaDataFrame> {
+    let bytes = dropped_file.bytes()?;
+    let mut reader = ParquetReader::new(Cursor::new(bytes));
+    let meta = reader.get_metadata()?;
+    // if let Some(meta) = &meta.key_value_metadata {
+    //     for key_value in meta {
+    //         println!("name: {} {:?}", key_value.key, key_value.value);
+    //     }
+    // }
+    // let mut meta = Metadata::default();
+    let mut meta = BTreeMap::new();
+    meta.insert(FILE.to_owned(), dropped_file.name().to_owned());
+    let data = reader.finish()?;
+    let last = data.width() - 1;
+    let name = data[last].name().to_lowercase();
+    // Icon
+    match &*name {
+        NAME_TEMPERATURE => meta.insert(ICON.to_owned(), THERMOMETER.to_owned()),
+        NAME_TURBIDITY => meta.insert(ICON.to_owned(), DROP_HALF.to_owned()),
+        _ => meta.insert(ICON.to_owned(), QUESTION.to_owned()),
+    };
+    // Timestamp
+    if let Some((min, max)) = data["Timestamp"].datetime()?.min_max() {
+        if let Some(min) = timestamp_ms_to_datetime(min) {
+            meta.insert(
+                MIN_TIMESTAMP.to_owned(),
+                min.format(DATE_TIME_FORMAT).to_string(),
+            );
+        }
+        if let Some(max) = timestamp_ms_to_datetime(max) {
+            meta.insert(
+                MAX_TIMESTAMP.to_owned(),
+                max.format(DATE_TIME_FORMAT).to_string(),
+            );
+        }
+    }
+    // Name
+    meta.insert(NAME.to_owned(), name);
+    Ok(MetaDataFrame::new(meta, data))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn spawn<F: Future<Output = ()> + Send + 'static>(f: F) {
     std::thread::spawn(move || futures::executor::block_on(f));
@@ -437,89 +431,9 @@ fn spawn<F: Future<Output = ()> + 'static>(f: F) {
     wasm_bindgen_futures::spawn_local(f);
 }
 
-#[cfg(target_arch = "wasm32")]
-fn spawn_mqtt(ctx: &egui::Context) {
-    let (mut sender, receiver) = loop {
-        // broker.emqx.io:8084
-        // match ewebsock::connect("wss://broker.emqx.io:8084/mqtt", Default::default()) {
-        match ewebsock::connect("wss://echo.websocket.org", Default::default()) {
-            Ok((sender, receiver)) => break (sender, receiver),
-            Err(error) => error!(%error),
-        }
-    };
-    spawn(async move {
-        // sender.send(ewebsock::WsMessage::Text("Hello!".into()));
-        loop {
-            sender.send(ewebsock::WsMessage::Text("Hello!".into()));
-        }
-    });
-    spawn(async move {
-        // sender.send(ewebsock::WsMessage::Text("Hello!".into()));
-        while let Some(event) = receiver.try_recv() {
-            println!("Received {:?}", event);
-        }
-    });
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn spawn_mqtt(ctx: &egui::Context) {
-    use polars::datatypes::TimeUnit;
-    use ron::de;
-    use rumqttc::{Client, Event, Incoming, MqttOptions, QoS};
-    use timed::MICROSECONDS;
-
-    let mut options = MqttOptions::new(MQTT_ID, MQTT_HOST, MQTT_PORT);
-    options.set_keep_alive(Duration::from_secs(9));
-    let (client, mut connection) = Client::new(options, 9);
-    let context = ctx.clone();
-    spawn(async move {
-        if let Err(error) = (|| -> Result<()> {
-            client.subscribe(MQTT_TOPIC, QoS::ExactlyOnce)?;
-            for event in connection.iter() {
-                if let Event::Incoming(Incoming::Publish(publish)) = event? {
-                    let Timed { time, value }: Timed<f64> = de::from_bytes(&publish.payload)?;
-                    trace!(?time);
-                    let timestamp = (time.unix_timestamp_nanos() / MICROSECONDS) as i64;
-                    let time = AnyValue::Datetime(timestamp, TimeUnit::Milliseconds, &None);
-                    let name = match &*publish.topic {
-                        MQTT_TOPIC_TEMPERATURE => NAME_TEMPERATURE,
-                        MQTT_TOPIC_TURBIDITY => NAME_TURBIDITY,
-                        MQTT_TOPIC_DDOC_C1 => NAME_DDOC_C1,
-                        MQTT_TOPIC_DDOC_C2 => NAME_DDOC_C2,
-                        MQTT_TOPIC_DDOC_T1 => NAME_DDOC_T1,
-                        MQTT_TOPIC_DDOC_T2 => NAME_DDOC_T2,
-                        MQTT_TOPIC_DDOC_V1 => NAME_DDOC_V1,
-                        MQTT_TOPIC_DDOC_V2 => NAME_DDOC_V2,
-                        topic => {
-                            error!("Unexpected MQTT topic {topic}");
-                            continue;
-                        }
-                    };
-                    let row = &df! {
-                        "Time" => vec![time],
-                        name => vec![value],
-                    }?;
-                    let id = Id::new(&*publish.topic);
-                    let mut data_frame = context
-                        .memory(|memory| memory.data.get_temp::<DataFrame>(id))
-                        .unwrap_or_default();
-                    data_frame = data_frame.vstack(&row)?;
-                    context.memory_mut(|memory| {
-                        memory.data.insert_temp(id, data_frame);
-                    });
-                }
-            }
-            Ok(())
-        })() {
-            error!(%error);
-        }
-    });
-}
-
-fn deserialize(dropped_file: &DroppedFile) -> Result<DataFrame> {
-    Ok(de::from_bytes(&dropped_file.bytes()?)?)
-}
-
 mod cloud;
 mod computers;
+mod data;
+mod metadata;
+mod mqtt;
 mod panes;
