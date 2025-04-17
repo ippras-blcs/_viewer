@@ -4,9 +4,7 @@ use bytes::{Bytes, buf::Buf};
 use egui::{Context, Id};
 use object_store::{memory::InMemory, path::Path};
 use parquet::arrow::{AsyncArrowWriter, async_writer::ParquetObjectWriter};
-use rumqttc::{Client, Event, Incoming, MqttOptions, QoS};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 use tracing::{error, instrument, trace};
 
 pub(crate) const TOPIC: &str = "ippras.ru/blcs/#";
@@ -24,7 +22,7 @@ const HOST: &str = "broker.emqx.io";
 const PORT: u16 = 1883;
 
 #[cfg(target_arch = "wasm32")]
-fn spawn(ctx: &egui::Context) {
+pub(super) fn spawn(ctx: &egui::Context) {
     let (mut sender, receiver) = loop {
         // broker.emqx.io:8084
         // match ewebsock::connect("wss://broker.emqx.io:8084/mqtt", Default::default()) {
@@ -33,18 +31,18 @@ fn spawn(ctx: &egui::Context) {
             Err(error) => error!(%error),
         }
     };
-    spawn(async move {
-        // sender.send(ewebsock::WsMessage::Text("Hello!".into()));
-        loop {
-            sender.send(ewebsock::WsMessage::Text("Hello!".into()));
-        }
-    });
-    spawn(async move {
-        // sender.send(ewebsock::WsMessage::Text("Hello!".into()));
-        while let Some(event) = receiver.try_recv() {
-            println!("Received {:?}", event);
-        }
-    });
+    // spawn(async move {
+    //     // sender.send(ewebsock::WsMessage::Text("Hello!".into()));
+    //     loop {
+    //         sender.send(ewebsock::WsMessage::Text("Hello!".into()));
+    //     }
+    // });
+    // spawn(async move {
+    //     // sender.send(ewebsock::WsMessage::Text("Hello!".into()));
+    //     while let Some(event) = receiver.try_recv() {
+    //         println!("Received {:?}", event);
+    //     }
+    // });
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -53,8 +51,11 @@ pub(super) fn spawn(context: &Context) {
     std::thread::spawn(move || futures::executor::block_on(handler(context)).ok());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[instrument(err)]
 async fn handler(context: Context) -> Result<()> {
+    use rumqttc::{Client, MqttOptions, QoS};
+
     let mut options = MqttOptions::new(ID, HOST, PORT);
     options.set_keep_alive(Duration::from_secs(9));
     let (client, mut connection) = Client::new(options, 9);
@@ -65,8 +66,11 @@ async fn handler(context: Context) -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[instrument(err)]
-async fn handle(context: &Context, event: Event) -> Result<()> {
+async fn handle(context: &Context, event: rumqttc::Event) -> Result<()> {
+    use rumqttc::{Event, Incoming};
+
     if let Event::Incoming(Incoming::Publish(publish)) = event {
         match &*publish.topic {
             TOPIC_DTEC => {

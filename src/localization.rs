@@ -34,13 +34,7 @@ mod sources {
         };
     }
 
-    pub(super) const EN: &[&str] = &[
-        source!("/ftl/en/settings.ftl"),
-        source!("/ftl/en/pane_settings.ftl"),
-    ];
+    pub(super) const EN: &[&str] = &[source!("/ftl/en/settings.ftl")];
 
-    pub(super) const RU: &[&str] = &[
-        source!("/ftl/ru/settings.ftl"),
-        source!("/ftl/ru/pane_settings.ftl"),
-    ];
+    pub(super) const RU: &[&str] = &[source!("/ftl/ru/settings.ftl")];
 }

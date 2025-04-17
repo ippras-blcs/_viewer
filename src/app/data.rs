@@ -1,4 +1,5 @@
 use super::{
+    YMDHMS,
     metadata::{FILE, ICON, MAX_TIMESTAMP, MIN_TIMESTAMP, NAME},
     panes::Kind,
 };
@@ -6,6 +7,8 @@ use crate::{
     app::{metadata::MetaDataFrame, panes::Pane},
     utils::hashed::Hashed,
 };
+use anyhow::Result;
+use chrono::{DateTime, FixedOffset, NaiveDateTime, Utc};
 use egui::{CentralPanel, Grid, Label, RichText, ScrollArea, Sense, TopBottomPanel, Ui, menu::bar};
 use egui_extras::{Column, TableBuilder};
 use egui_l20n::{ResponseExt, UiExt as _};
@@ -13,8 +16,10 @@ use egui_phosphor::regular::{BROWSERS, CHECK, MINUS, TRASH};
 use egui_tiles::Tree;
 use egui_tiles_ext::{TreeExt, VERTICAL};
 use indexmap::IndexSet;
+use polars::frame::DataFrame;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet, hash_map::Entry};
+use tracing::instrument;
 
 /// Data
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -24,11 +29,10 @@ pub(crate) struct Data {
 }
 
 impl Data {
-    pub(crate) fn selected(&self) -> Vec<MetaDataFrame> {
+    pub(crate) fn selected(&self) -> impl Iterator<Item = MetaDataFrame> {
         self.frames
             .iter()
             .filter_map(|frame| self.selected.contains(frame).then_some(frame.clone()))
-            .collect()
     }
 
     pub(crate) fn add(&mut self, mut frame: MetaDataFrame) {
@@ -91,14 +95,11 @@ impl Data {
             .on_hover_localized("browse")
             .clicked()
         {
-            let frames = self.selected();
-            for frame in frames {
+            if let Ok(frame) = reduce(self.selected()) {
                 let pane = Pane {
                     kind: Kind::Dtec,
-                    source: Hashed::new(frame),
-                    target: Default::default(),
-                    table_settings: Default::default(),
-                    plot_settings: Default::default(),
+                    frame: Hashed::new(frame),
+                    settings: Default::default(),
                     state: Default::default(),
                     view: Default::default(),
                 };
@@ -113,81 +114,118 @@ impl Data {
         // ui.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
         let height = ui.spacing().interact_size.y;
         let mut delete = None;
+        let mut select = None;
         TableBuilder::new(ui)
             .auto_shrink(false)
             .column(Column::auto().resizable(false))
             .column(Column::exact(height))
             .column(Column::auto().resizable(true))
             .column(Column::exact(height))
-            .body(|mut body| {
-                for (index, frame) in self.frames.iter().enumerate() {
-                    let mut changed = false;
-                    body.row(height, |mut row| {
-                        // Index
-                        row.col(|ui| {
-                            ui.label(index.to_string());
-                        });
-                        // Checkbox
-                        row.col(|ui| {
-                            let mut checked = self.selected.contains(frame);
-                            let response = ui.checkbox(&mut checked, "");
-                            changed |= response.changed();
-                        });
-                        // Label
-                        row.col(|ui| {
-                            let text = format!("{} {}", frame.meta[ICON], frame.meta[FILE],);
-                            let response = ui
-                                .add(Label::new(text).sense(Sense::click()).truncate())
-                                .on_hover_ui(|ui| {
-                                    ui.label(format!(
-                                        "{} {MINUS} {}",
-                                        frame.meta[MIN_TIMESTAMP], frame.meta[MAX_TIMESTAMP],
-                                    ));
-                                })
-                                // .on_hover_ui(|ui| {
-                                //     MetadataWidget::new(&frame.meta).show(ui);
-                                // })
-                                .on_hover_ui(|ui| {
-                                    Grid::new(ui.next_auto_id()).show(ui, |ui| {
-                                        ui.label("Rows");
-                                        ui.label(frame.data.height().to_string());
-                                        ui.end_row();
-                                        ui.label("Columns");
-                                        ui.label(frame.data.width().to_string());
-                                        ui.end_row();
-                                    });
-                                });
-                            changed |= response.clicked();
-                        });
-                        // Delete
-                        row.col(|ui| {
-                            if ui.button(TRASH).clicked() {
-                                delete = Some(frame.clone());
-                            }
-                        });
+            .body(|body| {
+                let total_rows = self.frames.len();
+                body.rows(height, total_rows, |mut row| {
+                    let index = row.index();
+                    let frame = &self.frames[index];
+                    // Index
+                    row.col(|ui| {
+                        ui.label(index.to_string());
                     });
-                    if changed {
-                        if body.ui_mut().input(|input| input.modifiers.command) {
-                            if self.selected.contains(frame) {
-                                self.selected.remove(frame);
-                            } else {
-                                self.selected.insert(frame.clone());
-                            }
-                        } else {
-                            if self.selected.contains(frame) {
-                                self.selected.remove(&frame);
-                            } else {
-                                self.selected.insert(frame.clone());
-                            }
+                    // Checkbox
+                    row.col(|ui| {
+                        let mut checked = self.selected.contains(frame);
+                        if ui.checkbox(&mut checked, "").changed() {
+                            select = Some(frame);
                         }
-                    }
-                }
+                    });
+                    // Label
+                    row.col(|ui| {
+                        let text = format!("{} {}", frame.meta[ICON], frame.meta[FILE],);
+                        if ui
+                            .add(Label::new(text).sense(Sense::click()).truncate())
+                            .on_hover_ui(|ui| {
+                                ui.label(format!(
+                                    "{} {MINUS} {}",
+                                    frame.meta[MIN_TIMESTAMP], frame.meta[MAX_TIMESTAMP],
+                                ));
+                            })
+                            // .on_hover_ui(|ui| {
+                            //     MetadataWidget::new(&frame.meta).show(ui);
+                            // })
+                            .on_hover_ui(|ui| {
+                                Grid::new(ui.next_auto_id()).show(ui, |ui| {
+                                    ui.label("Rows");
+                                    ui.label(frame.data.height().to_string());
+                                    ui.end_row();
+                                    ui.label("Columns");
+                                    ui.label(frame.data.width().to_string());
+                                    ui.end_row();
+                                });
+                            })
+                            .clicked()
+                        {
+                            select = Some(frame);
+                        }
+                    });
+                    // Delete
+                    row.col(|ui| {
+                        if ui.button(TRASH).clicked() {
+                            delete = Some(frame.clone());
+                        }
+                    });
+                });
             });
+        let ctrl = ui.input(|input| input.modifiers.command);
+        if let Some(frame) = select {
+            if ctrl {
+                if self.selected.contains(frame) {
+                    self.selected.remove(frame);
+                } else {
+                    self.selected.insert(frame.clone());
+                }
+            } else {
+                if self.selected.contains(frame) {
+                    self.selected.remove(&frame);
+                } else {
+                    self.selected.insert(frame.clone());
+                }
+            }
+        }
         if let Some(frame) = &delete {
-            self.frames.remove(frame);
+            self.frames.shift_remove(frame);
             self.selected.remove(frame);
         }
     }
+}
+
+#[instrument(skip(frames), err)]
+fn reduce(frames: impl Iterator<Item = MetaDataFrame>) -> Result<MetaDataFrame> {
+    let mut meta = BTreeMap::new();
+    let mut min_timestamp = NaiveDateTime::MAX;
+    let mut max_timestamp = NaiveDateTime::MIN;
+    let mut data = DataFrame::empty();
+    for frame in frames {
+        min_timestamp = min_timestamp.min(NaiveDateTime::parse_from_str(
+            &frame.meta[MIN_TIMESTAMP],
+            YMDHMS,
+        )?);
+        max_timestamp = max_timestamp.max(NaiveDateTime::parse_from_str(
+            &frame.meta[MAX_TIMESTAMP],
+            YMDHMS,
+        )?);
+        meta = frame.meta;
+        data = data.vstack(&frame.data)?;
+    }
+    data.rechunk_mut();
+    meta.remove(FILE);
+    meta.insert(
+        MIN_TIMESTAMP.to_owned(),
+        min_timestamp.format(YMDHMS).to_string(),
+    );
+    meta.insert(
+        MAX_TIMESTAMP.to_owned(),
+        max_timestamp.format(YMDHMS).to_string(),
+    );
+    Ok(MetaDataFrame::new(meta, data))
 }
 
 // impl Data {

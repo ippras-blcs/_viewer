@@ -1,28 +1,17 @@
-pub(crate) use self::settings::Settings;
-
+use super::Settings;
 use crate::{
     app::{
-        DATE_TIME_FORMAT,
         computers::{PlotComputed, PlotKey},
         metadata::MetaDataFrame,
     },
     utils::hashed::Hashed,
 };
 use arrow::temporal_conversions::timestamp_ms_to_datetime;
-use chrono::{
-    DateTime, Datelike, Duration, DurationRound as _, FixedOffset, Local, NaiveDateTime,
-    Offset as _, SubsecRound, TimeZone, Timelike, Utc,
-};
-use egui::{Id, Response, TextStyle, Ui, Widget, emath::round_to_decimals};
+use chrono::{DateTime, Duration, DurationRound as _, Local, SubsecRound, TimeZone, Timelike, Utc};
+use egui::{Id, TextStyle, Ui, emath::round_to_decimals};
 use egui_l20n::UiExt;
 use egui_plot::{GridInput, GridMark, Legend, Line, Plot, PlotPoints, Points};
-use settings::Offset;
-use std::{
-    fmt::Display,
-    i16::MIN,
-    iter::{self},
-    ops::Range,
-};
+use std::fmt::Display;
 use tracing::trace;
 
 use super::ID_SOURCE;
@@ -33,8 +22,8 @@ const HOUR: f64 = 60.0 * MINUTE;
 const DAY: f64 = 24.0 * HOUR;
 
 static YMDHMS: &str = "%Y-%m-%d %H:%M:%S";
-static YMD: &str = "%Y-%m-%d";
-static HMS: &str = "%H:%M:%S";
+static YMD: &str = "%Y-%m-%d %Z";
+static HMS: &str = "%H:%M:%S %Z";
 static MS: &str = "%M:%S";
 static S: &str = "%S";
 
@@ -55,7 +44,7 @@ impl View<'_> {
     pub(crate) fn show(&mut self, ui: &mut Ui) {
         // Plot
         let mut plot = Plot::new(ID_SOURCE);
-        if self.settings.legend {
+        if self.settings.plot.legend {
             plot = plot.legend(Legend::default().text_style(TextStyle::Monospace));
         }
         plot.label_formatter(|name, value| {
@@ -63,27 +52,24 @@ impl View<'_> {
             if !name.is_empty() {
                 formatted.push_str(&format!("{name}\n"));
             }
-            let date_time = match self.settings.time._offset {
-                Offset::Utc => format_time(value.x, Utc, YMDHMS),
-                Offset::Local => format_time(value.x, Local, YMDHMS),
-            };
-            let value = round_to_decimals(value.y, 2);
+            let date_time = self.settings.time_zone.format_time(value.x as _, YMDHMS);
+            // let value = round_to_decimals(value.y, 2);
+            let value = value.y;
             formatted.push_str(&format!("x = {date_time}\ny = {value}"));
             formatted
         })
-        .allow_drag(self.settings.drag)
-        .allow_scroll(self.settings.scroll)
-        .allow_zoom(self.settings.zoom)
+        .allow_drag(self.settings.plot.drag)
+        .allow_scroll(self.settings.plot.scroll)
+        .allow_zoom(self.settings.plot.zoom)
         .x_axis_label(ui.localize("time"))
-        .x_axis_formatter(|grid_mark, _| match self.settings.time._offset {
-            Offset::Utc => time_axis_formatter(grid_mark, Utc),
-            Offset::Local => time_axis_formatter(grid_mark, Local),
+        .x_axis_formatter(|grid_mark, _| {
+            time_axis_formatter(grid_mark, self.settings.time_zone.offset())
         })
         .x_grid_spacer(|grid_input| time_grid_spacer(grid_input, Utc))
         // .y_axis_label(unit.abbreviation())
         // .y_axis_formatter(move |y, _| round_to_decimals(y.value, 2).to_string())
-        .link_axis(Id::new("Plot"), self.settings.link)
-        .link_cursor(Id::new("Plot"), self.settings.link)
+        .link_axis(Id::new("Plot"), self.settings.plot.link)
+        .link_cursor(Id::new("Plot"), self.settings.plot.link)
         .show(ui, |ui| {
             let target = ui.ctx().memory_mut(|memory| {
                 memory.caches.cache::<PlotComputed>().get(PlotKey {
@@ -92,49 +78,54 @@ impl View<'_> {
                 })
             });
             // Source
-            if self.settings.source.line {
+            if self.settings.plot.source.line {
                 for (identifier, points) in target.source {
                     // Line
                     ui.line(
-                        Line::new(PlotPoints::new(points.clone())).name(format!("{identifier:x}")),
+                        Line::new(format!("{identifier:x}"), PlotPoints::new(points.clone()))
+                            .name(format!("{identifier:x}")),
                     );
                     // Points
-                    if self.settings.source.points.radius > 0.0 {
+                    if self.settings.plot.source.points.radius > 0.0 {
                         ui.points(
-                            Points::new(PlotPoints::new(points))
-                                .color(self.settings.source.points.color)
-                                .filled(self.settings.source.points.filled)
-                                .radius(self.settings.source.points.radius)
+                            Points::new(format!("{identifier:x}"), PlotPoints::new(points))
+                                .color(self.settings.plot.source.points.color)
+                                .filled(self.settings.plot.source.points.filled)
+                                .radius(self.settings.plot.source.points.radius)
                                 .name(format!("{identifier:x}")),
                         );
                     }
                 }
             }
             // Resampling mean
-            if self.settings.resampling.mean {
+            if self.settings.plot.resampling.mean {
                 for (identifier, points) in target.resampling.mean {
-                    let line = Line::new(PlotPoints::new(points)).name(format!("{identifier:x}"));
+                    let line = Line::new(format!("{identifier:x}"), PlotPoints::new(points))
+                        .name(format!("{identifier:x}"));
                     ui.line(line);
                 }
             }
             // Resampling median
-            if self.settings.resampling.median {
+            if self.settings.plot.resampling.median {
                 for (identifier, points) in target.resampling.median {
-                    let line = Line::new(PlotPoints::new(points)).name(format!("{identifier:x}"));
+                    let line = Line::new(format!("{identifier:x}"), PlotPoints::new(points))
+                        .name(format!("{identifier:x}"));
                     ui.line(line);
                 }
             }
             // Rolling mean
-            if self.settings.rolling.mean {
+            if self.settings.plot.rolling.mean {
                 for (identifier, points) in target.rolling.mean {
-                    let line = Line::new(PlotPoints::new(points)).name(format!("{identifier:x}"));
+                    let line = Line::new(format!("{identifier:x}"), PlotPoints::new(points))
+                        .name(format!("{identifier:x}"));
                     ui.line(line);
                 }
             }
             // Rolling median
-            if self.settings.rolling.median {
+            if self.settings.plot.rolling.median {
                 for (identifier, points) in target.rolling.median {
-                    let line = Line::new(PlotPoints::new(points)).name(format!("{identifier:x}"));
+                    let line = Line::new(format!("{identifier:x}"), PlotPoints::new(points))
+                        .name(format!("{identifier:x}"));
                     ui.line(line);
                 }
             }
@@ -146,7 +137,7 @@ impl View<'_> {
 //     fn ui(self, ui: &mut Ui) -> Response {
 //         // Plot
 //         let mut plot = Plot::new("plot");
-//         if self.settings.legend {
+//         if self.settings.plot.legend {
 //             plot = plot.legend(Legend::default());
 //         }
 //         plot.label_formatter(|name, value| {
@@ -154,21 +145,21 @@ impl View<'_> {
 //             if !name.is_empty() {
 //                 formatted.push_str(&format!("File: {name}\n"));
 //             }
-//             let time = format_time(value.x, self.settings.time.offset, YMDHMS);
+//             let time = format_time(value.x, self.settings.plot.time.offset, YMDHMS);
 //             let temperature = round_to_decimals(value.y, 2);
 //             formatted.push_str(&format!("x = {time}\ny = {temperature}"));
 //             formatted
 //         })
-//         .allow_drag(self.settings.drag)
-//         .allow_scroll(self.settings.scroll)
-//         .allow_zoom(self.settings.zoom)
+//         .allow_drag(self.settings.plot.drag)
+//         .allow_scroll(self.settings.plot.scroll)
+//         .allow_zoom(self.settings.plot.zoom)
 //         // .x_axis_label("Time")
-//         .x_axis_formatter(|grid_mark, _| time_axis_formatter(grid_mark, self.settings.time.offset))
-//         .x_grid_spacer(|grid_input| time_grid_spacer(grid_input, self.settings.time.offset))
+//         .x_axis_formatter(|grid_mark, _| time_axis_formatter(grid_mark, self.settings.plot.time.offset))
+//         .x_grid_spacer(|grid_input| time_grid_spacer(grid_input, self.settings.plot.time.offset))
 //         // .y_axis_label(unit.abbreviation())
 //         // .y_axis_formatter(move |y, _| round_to_decimals(y.value, 2).to_string())
-//         .link_axis(Id::new("plot"), self.settings.link)
-//         .link_cursor(Id::new("plot"), self.settings.link)
+//         .link_axis(Id::new("plot"), self.settings.plot.link)
+//         .link_cursor(Id::new("plot"), self.settings.plot.link)
 //         .show(ui, |ui| {
 //             let computed = ui.ctx().memory_mut(|memory| {
 //                 memory.caches.cache::<PlotComputed>().get(PlotKey {
@@ -180,12 +171,12 @@ impl View<'_> {
 //             // Line
 //             ui.line(Line::new(PlotPoints::new(computed.source.clone())).name("Source line"));
 //             // Points
-//             if self.settings.source.points.radius > 0.0 {
+//             if self.settings.plot.source.points.radius > 0.0 {
 //                 ui.points(
 //                     Points::new(computed.source)
-//                         .color(self.settings.source.points.color)
-//                         .filled(self.settings.source.points.filled)
-//                         .radius(self.settings.source.points.radius)
+//                         .color(self.settings.plot.source.points.color)
+//                         .filled(self.settings.plot.source.points.filled)
+//                         .radius(self.settings.plot.source.points.radius)
 //                         .name("Source points"),
 //                 );
 //             }
@@ -204,11 +195,11 @@ impl View<'_> {
 //                 ui.line(Line::new(PlotPoints::new(points)).name(format!("Rolling median")));
 //             }
 //             // // Resampling
-//             // if self.settings.resampling.enable {
+//             // if self.settings.plot.resampling.enable {
 //             //     let data_frame = ui.ctx().memory_mut(|memory| {
 //             //         memory.caches.cache::<Resampled>().get(ResamplerKey {
 //             //             data_frame: &data_frame,
-//             //             resampling: &self.settings.resampling,
+//             //             resampling: &self.settings.plot.resampling,
 //             //         })
 //             //     });
 //             //     let points = points(&data_frame, name)?;
@@ -216,15 +207,15 @@ impl View<'_> {
 //             //     ui.line(line);
 //             // }
 //             // // Rolling
-//             // if self.settings.rolling.mean || self.settings.rolling.median {
+//             // if self.settings.plot.rolling.mean || self.settings.plot.rolling.median {
 //             //     let data_frame = ui.ctx().memory_mut(|memory| {
 //             //         memory.caches.cache::<Rolled>().get(RollerKey {
 //             //             data_frame: &data_frame,
-//             //             rolling: &self.settings.rolling,
+//             //             rolling: &self.settings.plot.rolling,
 //             //         })
 //             //     });
 //             //     // Mean
-//             //     if self.settings.rolling.mean {
+//             //     if self.settings.plot.rolling.mean {
 //             //         let points = points(&data_frame, &format!("{name}.RollingMean"))?;
 //             //         let line = Line::new(PlotPoints::new(points)).name("Rolling mean");
 //             //         ui.line(line);
@@ -233,7 +224,7 @@ impl View<'_> {
 //             //         // })
 //             //     }
 //             //     // Median
-//             //     if self.settings.rolling.median {
+//             //     if self.settings.plot.rolling.median {
 //             //         let points = points(&data_frame, &format!("{name}.RollingMedian"))?;
 //             //         let line = Line::new(PlotPoints::new(points)).name("Rolling median");
 //             //         ui.line(line);
@@ -320,5 +311,3 @@ fn date_time<T: TimeZone>(value: f64, time_zone: &T) -> DateTime<T> {
         .map(|date_time| time_zone.from_utc_datetime(&date_time))
         .unwrap_or_else(|| Utc::now().with_timezone(time_zone))
 }
-
-mod settings;

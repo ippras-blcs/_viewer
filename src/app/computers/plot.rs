@@ -1,12 +1,9 @@
 use crate::{
-    app::{
-        metadata::{MetaDataFrame, NAME},
-        panes::plot::Settings,
-    },
+    app::{metadata::MetaDataFrame, panes::settings::Settings},
     utils::hashed::Hashed,
 };
 use egui::util::cache::{ComputerMut, FrameCache};
-use polars::{frame::group_by, prelude::*};
+use polars::prelude::*;
 use std::{collections::BTreeMap, iter::zip};
 use tracing::instrument;
 
@@ -30,27 +27,20 @@ impl Computer {
         let mut value = Value::default();
         let mut lazy_frame = key.frame.data.clone().lazy();
         lazy_frame = lazy_frame.sort([IDENTIFIER, TIMESTAMP], Default::default());
-        println!("lazy_frame: {}", lazy_frame.clone().collect().unwrap());
-        // All
-        // lazy_frame = lazy_frame.with_columns([
-        //     col(TIMESTAMP).cast(DataType::Float64) / lit(1000),
-        //     last().cast(DataType::Float64),
-        // ]);
         // Source
         value.source = source(lazy_frame.clone())?;
-
         // Resampling
-        if key.settings.resampling.mean {
+        if key.settings.plot.resampling.mean {
             value.resampling.mean = resampling_mean(lazy_frame.clone(), key)?;
         }
-        if key.settings.resampling.median {
+        if key.settings.plot.resampling.median {
             value.resampling.median = resampling_median(lazy_frame.clone(), key)?;
         }
         // Rolling
-        if key.settings.rolling.mean {
+        if key.settings.plot.rolling.mean {
             value.rolling.mean = rolling_mean(lazy_frame.clone(), key)?;
         }
-        if key.settings.rolling.median {
+        if key.settings.plot.rolling.median {
             value.rolling.median = rolling_median(lazy_frame, key)?;
         }
         Ok(value)
@@ -101,22 +91,8 @@ fn source(lazy_frame: LazyFrame) -> PolarsResult<BTreeMap<u64, Vec<[f64; 2]>>> {
 }
 
 fn resampling_mean(lazy_frame: LazyFrame, key: Key) -> PolarsResult<BTreeMap<u64, Vec<[f64; 2]>>> {
-    let every = Duration::parse(&format!("{}s", key.settings.resampling.every));
-    let period = Duration::parse(&format!("{}s", key.settings.resampling.period));
-    let t = lazy_frame
-        .clone()
-        .group_by_dynamic(
-            col(TIMESTAMP),
-            [col(IDENTIFIER)],
-            DynamicGroupOptions {
-                every,
-                period,
-                offset: Duration::parse("0"),
-                ..Default::default()
-            },
-        )
-        .agg([last().mean()]);
-    println!("data_frame!!!!: {}", t.collect().unwrap());
+    let every = Duration::parse(&format!("{}s", key.settings.plot.resampling.every));
+    let period = Duration::parse(&format!("{}s", key.settings.plot.resampling.period));
     collect(
         lazy_frame
             .group_by_dynamic(
@@ -139,8 +115,8 @@ fn resampling_median(
     lazy_frame: LazyFrame,
     key: Key,
 ) -> PolarsResult<BTreeMap<u64, Vec<[f64; 2]>>> {
-    let every = Duration::parse(&format!("{}s", key.settings.resampling.every));
-    let period = Duration::parse(&format!("{}s", key.settings.resampling.period));
+    let every = Duration::parse(&format!("{}s", key.settings.plot.resampling.every));
+    let period = Duration::parse(&format!("{}s", key.settings.plot.resampling.period));
     collect(
         lazy_frame
             .group_by_dynamic(
@@ -165,8 +141,8 @@ fn rolling_mean(lazy_frame: LazyFrame, key: Key) -> PolarsResult<BTreeMap<u64, V
             col(TIMESTAMP).alias(X),
             last()
                 .rolling_mean(RollingOptionsFixedWindow {
-                    window_size: key.settings.rolling.window_size,
-                    min_periods: key.settings.rolling.min_periods,
+                    window_size: key.settings.plot.rolling.window_size,
+                    min_periods: key.settings.plot.rolling.min_periods,
                     ..Default::default()
                 })
                 .round(ROUND_DECIMALS)
@@ -182,8 +158,8 @@ fn rolling_median(lazy_frame: LazyFrame, key: Key) -> PolarsResult<BTreeMap<u64,
             col(TIMESTAMP).alias(X),
             last()
                 .rolling_median(RollingOptionsFixedWindow {
-                    window_size: key.settings.rolling.window_size,
-                    min_periods: key.settings.rolling.min_periods,
+                    window_size: key.settings.plot.rolling.window_size,
+                    min_periods: key.settings.plot.rolling.min_periods,
                     ..Default::default()
                 })
                 .round(ROUND_DECIMALS)

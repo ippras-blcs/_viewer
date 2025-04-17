@@ -25,9 +25,7 @@ use egui_phosphor::{
 use egui_tiles::{ContainerKind, Tile, Tree};
 use egui_tiles_ext::{TilesExt as _, TreeExt as _, VERTICAL};
 use metadata::{FILE, ICON, MAX_TIMESTAMP, MIN_TIMESTAMP, NAME};
-use panes::Kind;
 use polars::prelude::*;
-use rumqttc::tokio_rustls::rustls::crypto::hmac::Key;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -48,13 +46,10 @@ const NAME_DDOC_V2: &str = "DDOC.V2";
 const NAME_TEMPERATURE: &str = "temperature";
 const NAME_TURBIDITY: &str = "turbidity";
 
-const DATE_TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+const YMDHMSZ: &str = "%Y-%m-%d %H:%M:%S %Z";
+const YMDHMS: &str = "%Y-%m-%d %H:%M:%S";
 const MAX_PRECISION: usize = 16;
 const ICON_SIZE: f32 = 32.0;
-
-macro icon($icon:expr) {
-    RichText::new($icon).size(ICON_SIZE)
-}
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(Deserialize, Serialize)]
@@ -234,18 +229,21 @@ impl App {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             bar(ui, |ui| {
                 // Left panel
-                ui.toggle_value(&mut self.left_panel, icon!(SIDEBAR_SIMPLE))
-                    .on_hover_text(ui.localize("left_panel"));
+                ui.toggle_value(
+                    &mut self.left_panel,
+                    RichText::new(SIDEBAR_SIMPLE).size(ICON_SIZE),
+                )
+                .on_hover_text(ui.localize("left_panel"));
                 ui.separator();
                 ui.light_dark_button(ICON_SIZE);
                 ui.separator();
-                ui.toggle_value(&mut self.reactive, icon!(ROCKET))
+                ui.toggle_value(&mut self.reactive, RichText::new(ROCKET).size(ICON_SIZE))
                     .on_hover_text("reactive")
                     .on_hover_text(ui.localize("reactive_description_enabled"))
                     .on_disabled_hover_text(ui.localize("reactive_description_disabled"));
                 ui.separator();
                 if ui
-                    .button(icon!(TRASH))
+                    .button(RichText::new(TRASH).size(ICON_SIZE))
                     .on_hover_text(ui.localize("reset_application"))
                     .clicked()
                 {
@@ -253,7 +251,7 @@ impl App {
                 }
                 ui.separator();
                 if ui
-                    .button(icon!(ARROWS_CLOCKWISE))
+                    .button(RichText::new(ARROWS_CLOCKWISE).size(ICON_SIZE))
                     .on_hover_text(ui.localize("reset_gui"))
                     .clicked()
                 {
@@ -262,7 +260,7 @@ impl App {
                 }
                 ui.separator();
                 if ui
-                    .button(icon!(SQUARE_SPLIT_VERTICAL))
+                    .button(RichText::new(SQUARE_SPLIT_VERTICAL).size(ICON_SIZE))
                     .on_hover_text(ui.localize("vertical"))
                     .clicked()
                 {
@@ -273,7 +271,7 @@ impl App {
                     }
                 }
                 if ui
-                    .button(icon!(SQUARE_SPLIT_HORIZONTAL))
+                    .button(RichText::new(SQUARE_SPLIT_HORIZONTAL).size(ICON_SIZE))
                     .on_hover_text(ui.localize("horizontal"))
                     .clicked()
                 {
@@ -284,7 +282,7 @@ impl App {
                     }
                 }
                 if ui
-                    .button(icon!(GRID_FOUR))
+                    .button(RichText::new(GRID_FOUR).size(ICON_SIZE))
                     .on_hover_text(ui.localize("grid"))
                     .clicked()
                 {
@@ -295,7 +293,7 @@ impl App {
                     }
                 }
                 if ui
-                    .button(icon!(TABS))
+                    .button(RichText::new(TABS).size(ICON_SIZE))
                     .on_hover_text(ui.localize("tabs"))
                     .clicked()
                 {
@@ -324,7 +322,7 @@ impl App {
                         }
                     }
                 };
-                ui.menu_button(icon!(CLOCK), |ui| {
+                ui.menu_button(RichText::new(CLOCK).size(ICON_SIZE), |ui| {
                     // Temperature
                     toggle(ui, Pane::DTEC);
                     toggle(ui, Pane::ATUC);
@@ -346,7 +344,7 @@ impl App {
                 .response
                 .on_hover_text(ui.localize("in_real_time"));
                 // // Open cloud saved
-                // ui.menu_button(icon!(CLOUD_ARROW_DOWN), |ui| {
+                // ui.menu_button(RichText::new(CLOUD_ARROW_DOWN).size(ICON_SIZE), |ui| {
                 //     self.google_drive.ui(ui);
                 // })
                 // .response
@@ -404,16 +402,10 @@ fn deserialize(dropped_file: &DroppedFile) -> Result<MetaDataFrame> {
     // Timestamp
     if let Some((min, max)) = data["Timestamp"].datetime()?.min_max() {
         if let Some(min) = timestamp_ms_to_datetime(min) {
-            meta.insert(
-                MIN_TIMESTAMP.to_owned(),
-                min.format(DATE_TIME_FORMAT).to_string(),
-            );
+            meta.insert(MIN_TIMESTAMP.to_owned(), min.format(YMDHMS).to_string());
         }
         if let Some(max) = timestamp_ms_to_datetime(max) {
-            meta.insert(
-                MAX_TIMESTAMP.to_owned(),
-                max.format(DATE_TIME_FORMAT).to_string(),
-            );
+            meta.insert(MAX_TIMESTAMP.to_owned(), max.format(YMDHMS).to_string());
         }
     }
     // Name

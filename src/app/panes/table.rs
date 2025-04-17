@@ -1,13 +1,9 @@
-pub(crate) use self::settings::{Order, Settings, Sort};
-
-use super::{ID_SOURCE, state::State};
-use crate::app::{DATE_TIME_FORMAT, NAME_TEMPERATURE, NAME_TURBIDITY};
+use super::{ID_SOURCE, settings::Settings, state::State};
+use crate::app::{NAME_TEMPERATURE, NAME_TURBIDITY, YMDHMS};
 use egui::{Context, Frame, Id, Margin, RichText, TextStyle, TextWrapMode, Ui, Vec2, vec2};
 use egui_l20n::{ResponseExt, UiExt as _};
 use egui_phosphor::regular::HASH;
-use egui_table::{
-    AutoSizeMode, CellInfo, Column, HeaderCellInfo, HeaderRow, Table, TableDelegate, TableState,
-};
+use egui_table::{CellInfo, Column, HeaderCellInfo, HeaderRow, Table, TableDelegate, TableState};
 use polars::prelude::*;
 use tracing::{error, instrument};
 
@@ -56,17 +52,18 @@ impl View<'_> {
             .id_salt(id_salt)
             .num_rows(num_rows)
             .columns(vec![
-                Column::default().resizable(self.settings.resizable);
+                Column::default()
+                    .resizable(self.settings.table.resizable);
                 num_columns
             ])
-            .num_sticky_cols(self.settings.sticky_columns)
+            .num_sticky_cols(self.settings.table.sticky_columns)
             .headers([HeaderRow::new(height)])
-            .auto_size_mode(AutoSizeMode::OnParentResize)
+            // .auto_size_mode(AutoSizeMode::OnParentResize)
             .show(ui, self);
     }
 
     fn header_cell_content_ui(&mut self, ui: &mut Ui, row: usize, column: usize) {
-        if self.settings.truncate {
+        if self.settings.table.truncate {
             ui.style_mut().wrap_mode = Some(TextWrapMode::Truncate);
         }
         match (row, column) {
@@ -102,11 +99,9 @@ impl View<'_> {
                 }
             }
             (row, TIMESTAMP) => {
-                let timestamp = self.data_frame["Timestamp"]
-                    .datetime()?
-                    .to_string(DATE_TIME_FORMAT)?;
+                let timestamp = self.data_frame["Timestamp"].datetime()?;
                 if let Some(timestamp) = timestamp.get(row) {
-                    ui.label(timestamp.to_string());
+                    ui.label(self.settings.time_zone.format_time(timestamp, YMDHMS));
                 }
             }
             (row, VALUE) => {
@@ -160,5 +155,3 @@ impl TableDelegate for View<'_> {
         row_nr as f32 * (ctx.style().spacing.interact_size.y + 2.0 * MARGIN.y)
     }
 }
-
-mod settings;
