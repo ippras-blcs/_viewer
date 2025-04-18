@@ -16,14 +16,17 @@ use crate::{
             TOPIC_DDOC_V2, TOPIC_DTEC,
         },
     },
+    export::xlsx,
     utils::hashed::Hashed,
 };
+use anyhow::Result;
 use chrono::NaiveDateTime;
 use egui::{CursorIcon, Response, RichText, Ui, Window, util::hash};
 use egui_l20n::{ResponseExt, UiExt as _};
-use egui_phosphor::regular::{ARROWS_CLOCKWISE, ARROWS_HORIZONTAL, GEAR, MINUS};
+use egui_phosphor::regular::{ARROWS_CLOCKWISE, ARROWS_HORIZONTAL, FLOPPY_DISK, GEAR, MINUS};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
+use tracing::instrument;
 
 const ID_SOURCE: &str = "Pane";
 
@@ -161,9 +164,7 @@ impl Pane {
         // Reset
         if ui
             .button(RichText::new(ARROWS_CLOCKWISE).heading())
-            .on_hover_ui(|ui| {
-                ui.label(ui.localize("reset_table"));
-            })
+            .on_hover_localized("reset_table")
             .clicked()
         {
             self.state.reset_table_state = true;
@@ -173,19 +174,34 @@ impl Pane {
             &mut self.settings.table.resizable,
             RichText::new(ARROWS_HORIZONTAL).heading(),
         )
-        .on_hover_ui(|ui| {
-            ui.label(ui.localize("resize_table"));
-        });
+        .on_hover_localized("resize_table");
         ui.separator();
         // Settings
         ui.toggle_value(
             &mut self.state.open_settings_window,
             RichText::new(GEAR).heading(),
         )
-        .on_hover_ui(|ui| {
-            ui.label(ui.localize("settings"));
-        });
-
+        .on_hover_localized("settings");
+        ui.separator();
+        // Export
+        ui.menu_button(RichText::new(FLOPPY_DISK).heading(), |ui| {
+            if ui.button("XLSX").clicked() {
+                let data_frame = ui.memory_mut(|memory| {
+                    let key = TableKey {
+                        frame: &self.frame,
+                        settings: &self.settings,
+                    };
+                    Hashed {
+                        value: memory.caches.cache::<TableComputed>().get(key),
+                        hash: hash(key),
+                    }
+                });
+                xlsx::save(&data_frame, "data_frame.xlsx").ok();
+                ui.close_menu();
+            }
+        })
+        .response
+        .on_hover_localized("save");
         ui.separator();
         response
     }

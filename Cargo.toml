@@ -42,9 +42,9 @@ polars = { version = "0.46.0", default-features = false, features = [
     "round_series",
     "serde",
     "temporal",
-    # "dtype-array",
 ] }
 ron = "0.10.1"
+rust_xlsxwriter = { version = "0.84.0", features = ["chrono", "wasm"] }
 serde = { version = "1.0.219", features = ["derive"] }
 tracing = "0.1.41"
 unic-langid = { version = "0.9.5", features = ["macros"] }
@@ -59,10 +59,10 @@ tokio = { version = "1.44.2", features = ["full"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 
 # web
-# getrandom = "0.3.2"
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.7"
 ewebsock = "0.8.0"
+js-sys = "0.3.77"
 poll-promise = { version = "0.3.0", features = ["web"] }
 tokio = { version = "1.44.2", features = ["macros", "rt", "sync", "time"] }
 tokio_with_wasm = { version = "0.8.2", features = [
@@ -71,10 +71,11 @@ tokio_with_wasm = { version = "0.8.2", features = [
     "sync",
     "time",
 ] }
-wasm-bindgen = "0.2.95"
 tracing-wasm = "0.2.1"
+wasm-bindgen = "0.2.95"
 wasm-bindgen-futures = "0.4.50"
-web-sys = "0.3.77"
+web-sys = { version = "0.3.77", features = ["Blob", "BlobPropertyBag", "Url"] }
+base64 = "0.22.1"
 # rumqttc = { version = "0.24.0", features = ["websocket"] }
 
 [profile.release]
