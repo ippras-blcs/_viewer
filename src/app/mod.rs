@@ -1,8 +1,4 @@
-use self::{
-    cloud::GoogleDrive,
-    data::Data,
-    panes::{Ddoc, Pane},
-};
+use self::{data::Data, panes::Pane};
 use crate::{
     app::{
         panes::Behavior,
@@ -15,7 +11,7 @@ use crate::{
             },
         },
     },
-    r#const::{IDENTIFIER, TIMESTAMP, VALUE},
+    r#const::{IDENTIFIER, TIMESTAMP, TURBIDITY},
     localization::ContextExt as _,
     utils::hashed::{HashedDataFrame, HashedMetaDataFrame},
 };
@@ -40,7 +36,6 @@ use egui_phosphor::{
 use egui_tiles::{ContainerKind, Tile, Tree};
 use egui_tiles_ext::{TilesExt as _, TreeExt as _, VERTICAL};
 use metadata::{Metadata, NAME, polars::MetaDataFrame};
-// use metadata::{FILE, ICON, MAX_TIMESTAMP, MIN_TIMESTAMP, NAME};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -65,7 +60,7 @@ const NAME_DDOC_T2: &str = "DDOC.T2";
 const NAME_DDOC_V1: &str = "DDOC.V1";
 const NAME_DDOC_V2: &str = "DDOC.V2";
 const NAME_TEMPERATURE: &str = "temperature";
-const NAME_TURBIDITY: &str = "turbidity";
+// const NAME_TURBIDITY: &str = "turbidity";
 
 const YMDHMSZ: &str = "%Y-%m-%d %H:%M:%S %Z";
 const YMDHMS: &str = "%Y-%m-%d %H:%M:%S";
@@ -100,7 +95,7 @@ impl App {
         cc.egui_ctx.set_localizations();
         // mqtt::spawn(&cc.egui_ctx);
 
-        return Default::default();
+        // return Default::default();
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
         cc.storage
@@ -370,6 +365,14 @@ impl App {
         }
     }
 
+    fn browse(&mut self, ctx: &Context) {
+        if let Some(frames) =
+            ctx.data_mut(|data| data.remove_temp::<Vec<HashedMetaDataFrame>>(Id::new("Browse")))
+        {
+            self.tree.insert_pane::<VERTICAL>(Pane::turbidity(frames));
+        }
+    }
+
     fn drag_and_drop(&mut self, ctx: &Context) {
         // Preview hovering files
         if let Some(text) = ctx.input(|input| {
@@ -407,14 +410,14 @@ impl App {
     #[instrument(skip_all, err)]
     fn parse(&mut self, ctx: &Context, dropped_file: DroppedFile) -> Result<()> {
         /// Turbidity schema
-        static TURBIDITY: LazyLock<SchemaRef> = LazyLock::new(|| {
+        static TURBIDITY_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
             Arc::new(Schema::from_iter([
-                Field::new(PlSmallStr::from_static(IDENTIFIER), DataType::String),
+                Field::new(PlSmallStr::from_static(IDENTIFIER), DataType::UInt64),
+                Field::new(PlSmallStr::from_static(TURBIDITY), DataType::UInt16),
                 Field::new(
                     PlSmallStr::from_static(TIMESTAMP),
                     DataType::Datetime(TimeUnit::Milliseconds, None),
                 ),
-                Field::new(PlSmallStr::from_static(VALUE), DataType::Float64),
             ]))
         });
 
@@ -433,7 +436,10 @@ impl App {
 
         let frame = MetaDataFrame::new(meta, HashedDataFrame::new(data)?);
         let schema = frame.data.schema();
-        if TURBIDITY.matches_schema(schema).is_ok_and(|cast| !cast) {
+        if TURBIDITY_SCHEMA
+            .matches_schema(schema)
+            .is_ok_and(|cast| !cast)
+        {
             info!("TURBIDITY");
             self.data.add(frame);
         } else {
@@ -513,6 +519,7 @@ impl eframe::App for App {
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         let mut state = State::load(ctx, Id::new(ID_SOURCE));
         self.data(ctx, &mut state);
+        self.browse(ctx);
         // Pre update
         self.panels(ctx, &mut state);
         self.windows(ctx, &mut state);

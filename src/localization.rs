@@ -34,7 +34,10 @@ mod sources {
         };
     }
 
-    pub(super) const EN: &[&str] = &[source!("/ftl/en/settings.ftl")];
+    pub(super) const EN: &[&str] = &[
+        source!("/ftl/en/main.ftl"),
+        source!("/ftl/en/settings.ftl"),
+    ];
 
     pub(super) const RU: &[&str] = &[source!("/ftl/ru/settings.ftl")];
 }

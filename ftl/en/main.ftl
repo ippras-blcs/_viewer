@@ -20,7 +20,10 @@ digital_temperature_controller = Digital temperature controller
 in_real_time = In real time
 Files = Files
     .hover = Files
-DeleteAll = Delete all
+ToggleAll = Toggle all
+    .hover = Toggle all
+DeleteSelected = Delete selected
+    .hover = Delete selected
 
 index = Index
 identifier = Identifier

@@ -1,9 +1,10 @@
-use crate::utils::hashed::HashedMetaDataFrame;
+use crate::{r#const::TURBIDITY, utils::hashed::HashedMetaDataFrame};
 use egui::{CentralPanel, Color32, Id, Label, MenuBar, RichText, ScrollArea, TopBottomPanel, Ui};
 use egui_dnd::dnd;
 use egui_l20n::{ResponseExt, UiExt as _};
-use egui_phosphor::regular::{BROWSERS, CHECK, DOTS_SIX_VERTICAL, NOTE_PENCIL, TRASH};
+use egui_phosphor::regular::{BROWSERS, CHECK, DOTS_SIX_VERTICAL, DROP_HALF, TRASH};
 use metadata::egui::MetadataWidget;
+use polars::prelude::{Column, PlSmallStr};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -97,7 +98,11 @@ impl Data {
                 let mut changed = false;
                 // Checkbox
                 let mut checked = self.selected.contains(frame);
-                changed |= ui.checkbox(&mut checked, "").changed();
+                let icon = match frame.data.column_iter().nth(1) {
+                    Some(column) if column.name() == TURBIDITY => DROP_HALF,
+                    _ => "",
+                };
+                changed |= ui.checkbox(&mut checked, icon).changed();
                 // Label
                 let text = frame.meta.format(" ").to_string();
                 changed |= ui

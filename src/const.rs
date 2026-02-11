@@ -3,4 +3,5 @@ pub(crate) const NO_BREAK_SPACE: &str = " ";
 
 pub(crate) const IDENTIFIER: &str = "Identifier";
 pub(crate) const TIMESTAMP: &str = "Timestamp";
-pub(crate) const VALUE: &str = "Value";
+pub(crate) const TURBIDITY: &str = "Turbidity";
+// pub(crate) const VALUE: &str = "Value";
