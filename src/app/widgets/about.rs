@@ -9,7 +9,7 @@ impl Widget for About {
     fn ui(self, ui: &mut Ui) -> Response {
         ui.vertical_centered(|ui| {
             let version = env!("CARGO_PKG_VERSION");
-            ui.heading(format!("UTCA {version}"));
+            ui.heading(format!("BLCS {version}"));
             ui.label("Ultimate TAG Calculation Application");
             // Links
             ui.separator();

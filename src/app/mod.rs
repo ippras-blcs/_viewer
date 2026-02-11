@@ -35,7 +35,7 @@ use egui_phosphor::{
 };
 use egui_tiles::{ContainerKind, Tile, Tree};
 use egui_tiles_ext::{TilesExt as _, TreeExt as _, VERTICAL};
-use metadata::{Metadata, NAME, polars::MetaDataFrame};
+use metadata::{DATE, Metadata, NAME, polars::MetaDataFrame};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -412,34 +412,35 @@ impl App {
         /// Turbidity schema
         static TURBIDITY_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
             Arc::new(Schema::from_iter([
-                Field::new(PlSmallStr::from_static(IDENTIFIER), DataType::UInt64),
-                Field::new(PlSmallStr::from_static(TURBIDITY), DataType::UInt16),
                 Field::new(
                     PlSmallStr::from_static(TIMESTAMP),
                     DataType::Datetime(TimeUnit::Milliseconds, None),
                 ),
+                Field::new(PlSmallStr::from_static(IDENTIFIER), DataType::UInt64),
+                Field::new(PlSmallStr::from_static(TURBIDITY), DataType::UInt16),
             ]))
         });
 
+        // Bytes
         let bytes = dropped_file.bytes()?;
         trace!(?bytes);
-
-        let mut reader = ParquetReader::new(Cursor::new(bytes));
-        // let meta = reader.get_metadata()?;
+        // Csv
+        let data = CsvReadOptions::default()
+            .with_schema(Some(TURBIDITY_SCHEMA.clone()))
+            .with_has_header(true)
+            .into_reader_with_file_handle(Cursor::new(bytes))
+            .finish()?;
         let mut meta = Metadata::default();
-        // meta.insert(FILE.to_owned(), dropped_file.name().to_owned());
-        let data = reader.finish()?;
-        let last = data.width() - 1;
-        let name = data[last].name().to_lowercase();
-        // Name
-        meta.insert(NAME.to_owned(), name);
-
+        let mut text = dropped_file.name().trim_end_matches(".csv");
+        if let Some((rest, date_time)) = text.rsplit_once(".") {
+            meta.insert(DATE.to_owned(), date_time.to_owned());
+            text = rest;
+        }
+        meta.insert(NAME.to_owned(), text.to_owned());
         let frame = MetaDataFrame::new(meta, HashedDataFrame::new(data)?);
         let schema = frame.data.schema();
-        if TURBIDITY_SCHEMA
-            .matches_schema(schema)
-            .is_ok_and(|cast| !cast)
-        {
+        if TURBIDITY_SCHEMA.matches_schema(schema).is_ok() {
+            // .is_ok_and(|cast| !cast)
             info!("TURBIDITY");
             self.data.add(frame);
         } else {
@@ -447,6 +448,30 @@ impl App {
                 polars_err!(SchemaMismatch: r#"Invalid dropped file schema: expected [`TURBIDITY`], got = `{schema:?}`"#),
             )?;
         }
+
+        // let mut reader = ParquetReader::new(Cursor::new(bytes));
+        // // let meta = reader.get_metadata()?;
+        // let mut meta = Metadata::default();
+        // // meta.insert(FILE.to_owned(), dropped_file.name().to_owned());
+        // let data = reader.finish()?;
+        // let last = data.width() - 1;
+        // let name = data[last].name().to_lowercase();
+        // // Name
+        // meta.insert(NAME.to_owned(), name);
+
+        // let frame = MetaDataFrame::new(meta, HashedDataFrame::new(data)?);
+        // let schema = frame.data.schema();
+        // if TURBIDITY_SCHEMA
+        //     .matches_schema(schema)
+        //     .is_ok_and(|cast| !cast)
+        // {
+        //     info!("TURBIDITY");
+        //     self.data.add(frame);
+        // } else {
+        //     return Err(
+        //         polars_err!(SchemaMismatch: r#"Invalid dropped file schema: expected [`TURBIDITY`], got = `{schema:?}`"#),
+        //     )?;
+        // }
         Ok(())
     }
 

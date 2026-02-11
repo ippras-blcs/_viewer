@@ -30,6 +30,7 @@ object_store = { version = "0.12.5", features = ["http", "serde"] }
 parquet = { version = "57.3.0", features = ["arrow", "async", "object_store"] }
 polars = { git = "https://github.com/pola-rs/polars", rev = "05f6f2d", default-features = false, features = [
     "bitwise",
+    "csv",
     "dtype-datetime",
     "dtype-struct",
     "dtype-u16",
