@@ -1,6 +1,6 @@
 use crate::{
     app::states::turbidity::settings::{Order, Settings, Sort},
-    utils::hashed::HashedDataFrame,
+    utils::hashed::{HashedDataFrame, HashedMetaDataFrame},
 };
 use egui::util::cache::{ComputerMut, FrameCache};
 use polars::prelude::*;
@@ -16,7 +16,12 @@ pub(crate) struct Computer;
 impl Computer {
     #[instrument(skip(self), err)]
     fn try_compute(&mut self, key: Key) -> PolarsResult<Value> {
-        let mut lazy_frame = key.frame.data_frame.clone().lazy();
+        let lazy_frames = key
+            .frames
+            .iter()
+            .map(|frame| frame.data.data_frame.clone().lazy())
+            .collect::<Vec<_>>();
+        let mut lazy_frame = concat(lazy_frames, UnionArgs::default())?;
         // Filter
         for identifier in &key.settings.table.filter.identifiers {
             lazy_frame = lazy_frame.filter(col("Identifier").neq(lit(*identifier)));
@@ -46,14 +51,14 @@ impl ComputerMut<Key<'_>, Value> for Computer {
 /// Table key
 #[derive(Clone, Copy, Debug, Hash, PartialEq)]
 pub(crate) struct Key<'a> {
-    pub(crate) frame: &'a HashedDataFrame,
+    pub(crate) frames: &'a [HashedMetaDataFrame],
     pub(crate) settings: &'a Settings,
 }
 
 impl<'a> Key<'a> {
-    pub(crate) fn new(frame: &'a HashedDataFrame, settings: &'a Settings) -> Self {
+    pub(crate) fn new(frames: &'a [HashedMetaDataFrame], settings: &'a Settings) -> Self {
         Self {
-            frame,
+            frames,
             settings: &settings,
             // ddof: settings.ddof,
             // normalize_factors: settings.normalize_factors,

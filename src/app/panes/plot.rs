@@ -1,16 +1,13 @@
-use super::Settings;
 use crate::{
-    app::{
-        computers::{PlotComputed, PlotKey},
-        metadata::MetaDataFrame,
-    },
-    utils::hashed::Hashed,
+    app::computers::plot::{Computed as PlotComputed, Key as PlotKey},
+    utils::hashed::HashedDataFrame,
 };
 use arrow::temporal_conversions::timestamp_ms_to_datetime;
 use chrono::{DateTime, Duration, DurationRound as _, Local, SubsecRound, TimeZone, Timelike, Utc};
 use egui::{Id, TextStyle, Ui, emath::round_to_decimals};
 use egui_l20n::UiExt;
 use egui_plot::{GridInput, GridMark, Legend, Line, Plot, PlotPoints, Points};
+use metadata::polars::MetaDataFrame;
 use std::fmt::Display;
 use tracing::trace;
 
@@ -30,12 +27,12 @@ static S: &str = "%S";
 /// Plot view
 #[derive(Debug, PartialEq)]
 pub(crate) struct View<'a> {
-    pub(crate) frame: &'a Hashed<MetaDataFrame>,
+    pub(crate) frame: &'a HashedDataFrame,
     pub(crate) settings: &'a mut Settings,
 }
 
 impl<'a> View<'a> {
-    pub(crate) const fn new(frame: &'a Hashed<MetaDataFrame>, settings: &'a mut Settings) -> Self {
+    pub(crate) const fn new(frame: &'a HashedDataFrame, settings: &'a mut Settings) -> Self {
         Self { frame, settings }
     }
 }

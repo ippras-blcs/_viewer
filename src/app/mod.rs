@@ -1,9 +1,14 @@
 use self::{
     cloud::GoogleDrive,
     data::Data,
-    panes::{Ddoc, Pane, behavior::Behavior},
+    panes::{Ddoc, Pane},
 };
-use crate::{app::metadata::MetaDataFrame, localization::ContextExt as _};
+use crate::{
+    app::panes::Behavior,
+    r#const::TIMESTAMP,
+    localization::ContextExt as _,
+    utils::hashed::{HashedDataFrame, HashedMetaDataFrame},
+};
 use anyhow::{Error, Result};
 use arrow::temporal_conversions::timestamp_ms_to_datetime;
 use eframe::{APP_KEY, CreationContext, Storage, get_value, set_value};
@@ -24,7 +29,8 @@ use egui_phosphor::{
 };
 use egui_tiles::{ContainerKind, Tile, Tree};
 use egui_tiles_ext::{TilesExt as _, TreeExt as _, VERTICAL};
-use metadata::{FILE, ICON, MAX_TIMESTAMP, MIN_TIMESTAMP, NAME};
+use metadata::{Metadata, NAME, polars::MetaDataFrame};
+// use metadata::{FILE, ICON, MAX_TIMESTAMP, MIN_TIMESTAMP, NAME};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -122,7 +128,7 @@ impl App {
         }) {
             let painter =
                 ctx.layer_painter(LayerId::new(Order::Foreground, Id::new("file_drop_target")));
-            let screen_rect = ctx.screen_rect();
+            let screen_rect = ctx.content_rect();
             painter.rect_filled(screen_rect, 0.0, Color32::from_black_alpha(192));
             painter.text(
                 screen_rect.center(),
@@ -193,7 +199,7 @@ impl App {
 
     // Bottom panel
     fn bottom_panel(&mut self, ctx: &egui::Context) {
-        TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+        TopBottomPanel::bottom("BottomPanel").show(ctx, |ui| {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 warn_if_debug_build(ui);
                 ui.label(RichText::new(env!("CARGO_PKG_VERSION")).small());
@@ -205,9 +211,9 @@ impl App {
     // Central panel
     fn central_panel(&mut self, ctx: &egui::Context) {
         CentralPanel::default().show(ctx, |ui| {
-            let mut behavior = Behavior::new();
+            let mut behavior = Behavior { close: None };
             self.tree.ui(&mut behavior, ui);
-            if let Some(id) = behavior.close.take() {
+            if let Some(id) = behavior.close {
                 self.tree.tiles.remove(id);
             }
         });
@@ -219,7 +225,7 @@ impl App {
             .resizable(true)
             .show_animated(ctx, self.left_panel, |ui| {
                 ScrollArea::vertical().show(ui, |ui| {
-                    self.data.show(ui, &mut self.tree);
+                    self.data.show(ui);
                 });
             });
     }
@@ -305,44 +311,44 @@ impl App {
                 }
                 ui.separator();
                 // In real time
-                let mut toggle = |ui: &mut Ui, pane: Pane| {
-                    let tile_id = self.tree.tiles.find_pane_by(|candidate| {
-                        candidate.kind == pane.kind
-                            && candidate.is_real_time() == pane.is_real_time()
-                    });
-                    if ui
-                        .selectable_label(tile_id.is_some(), ui.localize(pane.text()))
-                        .on_hover_text(ui.localize(pane.hover_text()))
-                        .clicked()
-                    {
-                        if let Some(id) = tile_id {
-                            self.tree.tiles.remove(id);
-                        } else {
-                            self.tree.insert_pane::<VERTICAL>(pane);
-                        }
-                    }
-                };
-                ui.menu_button(RichText::new(CLOCK).size(ICON_SIZE), |ui| {
-                    // Temperature
-                    toggle(ui, Pane::DTEC);
-                    toggle(ui, Pane::ATUC);
-                    // DDOC
-                    ui.menu_button(
-                        ui.localize("digital_disolved_oxygen_controller.abbreviation"),
-                        |ui| {
-                            toggle(ui, Pane::DDOC_V1);
-                            toggle(ui, Pane::DDOC_V2);
-                            toggle(ui, Pane::DDOC_T1);
-                            toggle(ui, Pane::DDOC_T2);
-                            toggle(ui, Pane::DDOC_C1);
-                            toggle(ui, Pane::DDOC_C2);
-                        },
-                    )
-                    .response
-                    .on_disabled_hover_localized("digital_disolved_oxygen_controller.hover");
-                })
-                .response
-                .on_hover_text(ui.localize("in_real_time"));
+                // let mut toggle = |ui: &mut Ui, pane: Pane| {
+                //     let tile_id = self.tree.tiles.find_pane_by(|candidate| {
+                //         candidate.kind == pane.kind
+                //             && candidate.is_real_time() == pane.is_real_time()
+                //     });
+                //     if ui
+                //         .selectable_label(tile_id.is_some(), ui.localize(pane.text()))
+                //         .on_hover_text(ui.localize(pane.hover_text()))
+                //         .clicked()
+                //     {
+                //         if let Some(id) = tile_id {
+                //             self.tree.tiles.remove(id);
+                //         } else {
+                //             self.tree.insert_pane::<VERTICAL>(pane);
+                //         }
+                //     }
+                // };
+                // ui.menu_button(RichText::new(CLOCK).size(ICON_SIZE), |ui| {
+                //     // Temperature
+                //     toggle(ui, Pane::DTEC);
+                //     toggle(ui, Pane::ATUC);
+                //     // DDOC
+                //     ui.menu_button(
+                //         ui.localize("digital_disolved_oxygen_controller.abbreviation"),
+                //         |ui| {
+                //             toggle(ui, Pane::DDOC_V1);
+                //             toggle(ui, Pane::DDOC_V2);
+                //             toggle(ui, Pane::DDOC_T1);
+                //             toggle(ui, Pane::DDOC_T2);
+                //             toggle(ui, Pane::DDOC_C1);
+                //             toggle(ui, Pane::DDOC_C2);
+                //         },
+                //     )
+                //     .response
+                //     .on_disabled_hover_localized("digital_disolved_oxygen_controller.hover");
+                // })
+                // .response
+                // .on_hover_text(ui.localize("in_real_time"));
                 // // Open cloud saved
                 // ui.menu_button(RichText::new(CLOUD_ARROW_DOWN).size(ICON_SIZE), |ui| {
                 //     self.google_drive.ui(ui);
@@ -378,7 +384,7 @@ impl eframe::App for App {
 }
 
 #[instrument(err)]
-fn deserialize(dropped_file: &DroppedFile) -> Result<MetaDataFrame> {
+fn deserialize(dropped_file: &DroppedFile) -> Result<HashedMetaDataFrame> {
     let bytes = dropped_file.bytes()?;
     let mut reader = ParquetReader::new(Cursor::new(bytes));
     let meta = reader.get_metadata()?;
@@ -387,45 +393,37 @@ fn deserialize(dropped_file: &DroppedFile) -> Result<MetaDataFrame> {
     //         println!("name: {} {:?}", key_value.key, key_value.value);
     //     }
     // }
-    // let mut meta = Metadata::default();
-    let mut meta = BTreeMap::new();
-    meta.insert(FILE.to_owned(), dropped_file.name().to_owned());
+    let mut meta = Metadata::default();
+    // meta.insert(FILE.to_owned(), dropped_file.name().to_owned());
     let data = reader.finish()?;
     let last = data.width() - 1;
     let name = data[last].name().to_lowercase();
-    // Icon
-    match &*name {
-        NAME_TEMPERATURE => meta.insert(ICON.to_owned(), THERMOMETER.to_owned()),
-        NAME_TURBIDITY => meta.insert(ICON.to_owned(), DROP_HALF.to_owned()),
-        _ => meta.insert(ICON.to_owned(), QUESTION.to_owned()),
-    };
-    // Timestamp
-    if let Some((min, max)) = data["Timestamp"].datetime()?.min_max() {
-        if let Some(min) = timestamp_ms_to_datetime(min) {
-            meta.insert(MIN_TIMESTAMP.to_owned(), min.format(YMDHMS).to_string());
-        }
-        if let Some(max) = timestamp_ms_to_datetime(max) {
-            meta.insert(MAX_TIMESTAMP.to_owned(), max.format(YMDHMS).to_string());
-        }
-    }
+    // // Icon
+    // match &*name {
+    //     NAME_TEMPERATURE => meta.insert(ICON.to_owned(), THERMOMETER.to_owned()),
+    //     NAME_TURBIDITY => meta.insert(ICON.to_owned(), DROP_HALF.to_owned()),
+    //     _ => meta.insert(ICON.to_owned(), QUESTION.to_owned()),
+    // };
+    // // Timestamp
+    // if let Some((min, max)) = data[TIMESTAMP].datetime()?.phys.min_max() {
+    //     if let Some(min) = timestamp_ms_to_datetime(min) {
+    //         meta.insert(MIN_TIMESTAMP.to_owned(), min.format(YMDHMS).to_string());
+    //     }
+    //     if let Some(max) = timestamp_ms_to_datetime(max) {
+    //         meta.insert(MAX_TIMESTAMP.to_owned(), max.format(YMDHMS).to_string());
+    //     }
+    // }
     // Name
     meta.insert(NAME.to_owned(), name);
-    Ok(MetaDataFrame::new(meta, data))
-}
 
-#[cfg(not(target_arch = "wasm32"))]
-fn spawn<F: Future<Output = ()> + Send + 'static>(f: F) {
-    std::thread::spawn(move || futures::executor::block_on(f));
-}
-
-#[cfg(target_arch = "wasm32")]
-fn spawn<F: Future<Output = ()> + 'static>(f: F) {
-    wasm_bindgen_futures::spawn_local(f);
+    Ok(MetaDataFrame::new(meta, HashedDataFrame::new(data)?))
 }
 
 mod cloud;
 mod computers;
 mod data;
-mod metadata;
 mod mqtt;
-mod panes;
+
+pub mod panes;
+pub mod states;
+pub mod widgets;

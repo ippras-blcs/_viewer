@@ -45,4 +45,5 @@ mod web {
     }
 }
 
+pub mod ron;
 pub mod xlsx;

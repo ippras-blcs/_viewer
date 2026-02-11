@@ -1,7 +1,10 @@
 use super::ID_SOURCE;
-use crate::app::{
-    NAME_TEMPERATURE, NAME_TURBIDITY, YMDHMS,
-    states::turbidity::{State, settings::Settings},
+use crate::{
+    app::{
+        NAME_TEMPERATURE, NAME_TURBIDITY, YMDHMS,
+        states::turbidity::{State, settings::Settings},
+    },
+    utils::hashed::HashedDataFrame,
 };
 use egui::{Context, Frame, Id, Margin, RichText, TextStyle, TextWrapMode, Ui, Vec2, vec2};
 use egui_l20n::{ResponseExt, UiExt as _};
@@ -18,38 +21,29 @@ const TIMESTAMP: usize = 2;
 const VALUE: usize = 3;
 const LEN: usize = 4;
 
-/// Table view
+/// Turbidity table view
 #[derive(Debug)]
 pub(crate) struct View<'a> {
-    data_frame: &'a DataFrame,
-    settings: &'a Settings,
-    state: &'a mut State,
+    frame: &'a HashedDataFrame,
+    settings: &'a mut Settings,
 }
 
 impl<'a> View<'a> {
-    pub(crate) fn new(
-        data_frame: &'a DataFrame,
-        settings: &'a Settings,
-        state: &'a mut State,
-    ) -> Self {
-        Self {
-            data_frame,
-            settings,
-            state,
-        }
+    pub(crate) fn new(frame: &'a HashedDataFrame, settings: &'a mut Settings) -> Self {
+        Self { frame, settings }
     }
 }
 
 impl View<'_> {
     pub(super) fn show(&mut self, ui: &mut Ui) {
         let id_salt = Id::new(ID_SOURCE).with("Table");
-        if self.state.event.reset_table_state {
+        if self.settings.table.reset {
             let id = TableState::id(ui, Id::new(id_salt));
             TableState::reset(ui.ctx(), id);
-            self.state.event.reset_table_state = false;
+            self.settings.table.reset = false;
         }
         let height = ui.text_style_height(&TextStyle::Heading) + 2.0 * MARGIN.y;
-        let num_rows = self.data_frame.height() as u64;
+        let num_rows = self.frame.height() as u64;
         let num_columns = LEN;
         Table::new()
             .id_salt(id_salt)
@@ -96,28 +90,28 @@ impl View<'_> {
                 ui.label(row.to_string());
             }
             (row, IDENTIFIER) => {
-                let identifier = self.data_frame["Identifier"].u64()?;
+                let identifier = self.frame["Identifier"].u64()?;
                 if let Some(identifier) = identifier.get(row) {
                     ui.label(RichText::new(format!("{identifier:x}")).monospace());
                 }
             }
             (row, TIMESTAMP) => {
-                let timestamp = self.data_frame["Timestamp"].datetime()?;
+                let timestamp = self.frame["Timestamp"].datetime()?;
                 if let Some(timestamp) = timestamp.phys.get(row) {
                     ui.label(self.settings.time_zone.format_time(timestamp, YMDHMS));
                 }
             }
             (row, VALUE) => {
-                let last = self.data_frame.width() - 1;
-                match &*self.data_frame[last].name().to_lowercase() {
+                let last = self.frame.width() - 1;
+                match &*self.frame[last].name().to_lowercase() {
                     NAME_TEMPERATURE => {
-                        let temperature = self.data_frame[last].f32()?;
+                        let temperature = self.frame[last].f32()?;
                         if let Some(temperature) = temperature.get(row) {
                             ui.label(temperature.to_string());
                         }
                     }
                     NAME_TURBIDITY => {
-                        let turbidity = self.data_frame[last].u16()?;
+                        let turbidity = self.frame[last].u16()?;
                         if let Some(turbidity) = turbidity.get(row) {
                             ui.label(turbidity.to_string());
                         }
