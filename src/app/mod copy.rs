@@ -3,7 +3,7 @@ use self::panes::{
     left::SettingsPane,
 };
 use anyhow::Result;
-use blc::Timed;
+use blcs::Timed;
 use eframe::{get_value, set_value, CreationContext, Storage, APP_KEY};
 use egui::{
     global_dark_light_mode_switch, menu::bar, warn_if_debug_build, Align, Align2, CentralPanel,
@@ -19,18 +19,18 @@ use serde::{Deserialize, Serialize};
 use std::{fmt::Write, future::Future, str, time::Duration};
 use tracing::{error, info, trace};
 
-const MQTT_ID: &str = "ippras.ru/blc/viewer";
+const MQTT_ID: &str = "ippras.ru/blcs/viewer";
 const MQTT_HOST: &str = "broker.emqx.io";
 const MQTT_PORT: u16 = 1883;
-const MQTT_TOPIC: &str = "ippras.ru/blc/#";
-const MQTT_TOPIC_TEMPERATURE: &str = "ippras.ru/blc/temperature";
-const MQTT_TOPIC_TURBIDITY: &str = "ippras.ru/blc/turbidity";
-const MQTT_TOPIC_DDOC_C1: &str = "ippras.ru/blc/ddoc/c1"; // mA
-const MQTT_TOPIC_DDOC_C2: &str = "ippras.ru/blc/ddoc/c2"; // mA
-const MQTT_TOPIC_DDOC_T1: &str = "ippras.ru/blc/ddoc/t1"; // °C
-const MQTT_TOPIC_DDOC_T2: &str = "ippras.ru/blc/ddoc/t2"; // °C
-const MQTT_TOPIC_DDOC_V1: &str = "ippras.ru/blc/ddoc/v1"; // mg/L
-const MQTT_TOPIC_DDOC_V2: &str = "ippras.ru/blc/ddoc/v2"; // %
+const MQTT_TOPIC: &str = "ippras.ru/blcs/#";
+const MQTT_TOPIC_TEMPERATURE: &str = "ippras.ru/blcs/temperature";
+const MQTT_TOPIC_TURBIDITY: &str = "ippras.ru/blcs/turbidity";
+const MQTT_TOPIC_DDOC_C1: &str = "ippras.ru/blcs/ddoc/c1"; // mA
+const MQTT_TOPIC_DDOC_C2: &str = "ippras.ru/blcs/ddoc/c2"; // mA
+const MQTT_TOPIC_DDOC_T1: &str = "ippras.ru/blcs/ddoc/t1"; // °C
+const MQTT_TOPIC_DDOC_T2: &str = "ippras.ru/blcs/ddoc/t2"; // °C
+const MQTT_TOPIC_DDOC_V1: &str = "ippras.ru/blcs/ddoc/v1"; // mg/L
+const MQTT_TOPIC_DDOC_V2: &str = "ippras.ru/blcs/ddoc/v2"; // %
 const NAME_TEMPERATURE: &str = "Temperature";
 const NAME_TURBIDITY: &str = "Turbidity";
 const NAME_DDOC_C1: &str = "DDOC.C1";
@@ -362,7 +362,7 @@ fn spawn_mqtt(ctx: &egui::Context) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn spawn_mqtt(ctx: &egui::Context) {
-    use blc::MICROSECONDS;
+    use blcs::MICROSECONDS;
     use polars::datatypes::TimeUnit;
     use ron::de;
     use rumqttc::{Client, Event, Incoming, MqttOptions, QoS};

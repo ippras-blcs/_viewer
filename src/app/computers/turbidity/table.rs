@@ -1,5 +1,9 @@
 use crate::{
-    app::states::turbidity::settings::{Order, Settings, Sort},
+    app::states::turbidity::settings::{
+        Settings,
+        table::{Order, Sort},
+    },
+    r#const::{IDENTIFIER, TIMESTAMP},
     utils::hashed::{HashedDataFrame, HashedMetaDataFrame},
 };
 use egui::util::cache::{ComputerMut, FrameCache};
@@ -24,18 +28,18 @@ impl Computer {
         let mut lazy_frame = concat(lazy_frames, UnionArgs::default())?;
         // Filter
         for identifier in &key.settings.table.filter.identifiers {
-            lazy_frame = lazy_frame.filter(col("Identifier").neq(lit(*identifier)));
+            lazy_frame = lazy_frame.filter(col(IDENTIFIER).neq(lit(*identifier)));
         }
         // Sort
         let mut sort_options = SortMultipleOptions::default();
-        if let Order::Descending = key.settings.table.order {
+        if let Order::Descending = key.order {
             sort_options = sort_options
                 .with_order_descending(true)
                 .with_nulls_last(true);
         }
-        lazy_frame = match key.settings.table.sort {
-            Sort::Identifier => lazy_frame.sort_by_exprs([col("Identifier")], sort_options),
-            Sort::Timestamp => lazy_frame.sort_by_exprs([col("Timestamp")], sort_options),
+        lazy_frame = match key.sort {
+            Sort::Identifier => lazy_frame.sort_by_exprs([col(IDENTIFIER)], sort_options),
+            Sort::Timestamp => lazy_frame.sort_by_exprs([col(TIMESTAMP)], sort_options),
             Sort::Value => lazy_frame.sort_by_exprs([last().as_expr()], sort_options),
         };
         HashedDataFrame::new(lazy_frame.collect()?)
@@ -52,6 +56,9 @@ impl ComputerMut<Key<'_>, Value> for Computer {
 #[derive(Clone, Copy, Debug, Hash, PartialEq)]
 pub(crate) struct Key<'a> {
     pub(crate) frames: &'a [HashedMetaDataFrame],
+    pub(crate) order: Order,
+    pub(crate) sort: Sort,
+    // pub(crate) filter: Vec<String>,
     pub(crate) settings: &'a Settings,
 }
 
@@ -59,6 +66,9 @@ impl<'a> Key<'a> {
     pub(crate) fn new(frames: &'a [HashedMetaDataFrame], settings: &'a Settings) -> Self {
         Self {
             frames,
+            order: settings.table.order,
+            sort: settings.table.sort,
+            // filter: Vec::new(),
             settings: &settings,
             // ddof: settings.ddof,
             // normalize_factors: settings.normalize_factors,

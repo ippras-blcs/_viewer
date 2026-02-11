@@ -1,5 +1,7 @@
-pub(crate) use self::table::{Order, Sort};
-use self::{plot::Settings as PlotSettings, table::Settings as TableSettings};
+use self::{
+    plot::Settings as PlotSettings,
+    table::{Order, Settings as TableSettings, Sort},
+};
 use arrow::temporal_conversions::timestamp_ms_to_datetime;
 use chrono::{DateTime, FixedOffset, Local, Offset as _, TimeZone as _, Utc};
 use egui::{ComboBox, Grid, Ui};

@@ -1,5 +1,8 @@
 use crate::{
-    app::states::turbidity::settings::{Order, Settings, Sort},
+    app::states::turbidity::settings::{
+        Settings,
+        table::{Order, Sort},
+    },
     utils::hashed::HashedDataFrame,
 };
 use egui::util::cache::{ComputerMut, FrameCache};

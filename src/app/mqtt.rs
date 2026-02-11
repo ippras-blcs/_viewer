@@ -7,7 +7,7 @@ use parquet::arrow::{AsyncArrowWriter, async_writer::ParquetObjectWriter};
 use std::{sync::Arc, time::Duration};
 use tracing::{error, instrument, trace};
 
-pub(crate) const TOPIC: &str = "ippras.ru/blcs/#";
+pub(crate) const TOPICS: &str = "ippras.ru/blcs/#";
 pub(crate) const TOPIC_ATUC: &str = "ippras.ru/blcs/atuc";
 pub(crate) const TOPIC_DDOC_C1: &str = "ippras.ru/blcs/ddoc/c1"; // mA
 pub(crate) const TOPIC_DDOC_C2: &str = "ippras.ru/blcs/ddoc/c2"; // mA
@@ -59,7 +59,7 @@ async fn handler(context: Context) -> Result<()> {
     let mut options = MqttOptions::new(ID, HOST, PORT);
     options.set_keep_alive(Duration::from_secs(9));
     let (client, mut connection) = Client::new(options, 9);
-    client.subscribe(TOPIC, QoS::ExactlyOnce)?;
+    client.subscribe(TOPICS, QoS::ExactlyOnce)?;
     for event in connection.iter() {
         handle(&context, event?).await.ok();
     }

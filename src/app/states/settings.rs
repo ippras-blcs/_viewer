@@ -8,18 +8,18 @@ use std::hash::{Hash, Hasher};
 #[derive(Clone, Debug, Deserialize, Hash, PartialEq, Serialize)]
 pub(crate) struct Settings {
     pub(crate) layout: Layout,
-    pub(crate) percent: bool,
-    pub(crate) precision: usize,
-    pub(crate) reset_state: bool,
+    pub(crate) left_panel: bool,
+    pub(crate) reactive: bool,
+    pub(crate) reset: bool,
 }
 
 impl Settings {
     pub(crate) fn new() -> Self {
         Self {
             layout: Layout::new(),
-            percent: true,
-            precision: 2,
-            reset_state: false,
+            left_panel: true,
+            reactive: true,
+            reset: false,
         }
     }
 }

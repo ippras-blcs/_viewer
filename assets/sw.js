@@ -1,9 +1,9 @@
-var cacheName = 'blc';
+var cacheName = 'blcs';
 var filesToCache = [
   './',
   './index.html',
-  './blc.js',
-  './blc_bg.wasm',
+  './blcs.js',
+  './blcs_bg.wasm',
 ];
 
 /* Start the service worker and cache all of the app's content */

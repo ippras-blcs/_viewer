@@ -1,6 +1,6 @@
 {
-  "name": "Bioreactor Logging and Control Application",
-  "short_name": "blc",
+  "name": "Bioreactor Logging and Control System",
+  "short_name": "blcs",
   "icons": [
     {
       "src": "./icon-256.png",

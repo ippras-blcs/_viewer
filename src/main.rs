@@ -14,7 +14,7 @@ async fn main() -> eframe::Result<()> {
 
     let native_options = Default::default();
     eframe::run_native(
-        "BLCS viewer",
+        "BLCS",
         native_options,
         Box::new(|cc| Ok(Box::new(App::new(cc)))),
     )
