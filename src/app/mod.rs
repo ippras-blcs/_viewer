@@ -485,7 +485,7 @@ impl App {
             .with_schema(Some(TURBIDITY_SCHEMA.clone()))
             .with_has_header(false)
             .with_skip_rows(1)
-            .into_reader_with_file_handle(Cursor::new(&bytes[read..]))
+            .into_reader_with_file_handle(reader)
             .finish()?;
         println!("data: {data:?}");
         let frame = MetaDataFrame::new(meta, HashedDataFrame::new(data)?);
