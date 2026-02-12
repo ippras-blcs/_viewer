@@ -15,7 +15,7 @@ use crate::{
     localization::ContextExt as _,
     utils::{
         hashed::{HashedDataFrame, HashedMetaDataFrame},
-        metadata::{Parsed, parse},
+        metadata::{MetadataStruct, Parsed, parse},
     },
 };
 use anyhow::{Error, Result, anyhow};
@@ -45,7 +45,7 @@ use std::{
     collections::BTreeMap,
     fmt::Write,
     future::Future,
-    io::{BufRead, Cursor, Seek, SeekFrom},
+    io::{BufRead, BufReader, Cursor, Seek, SeekFrom},
     str,
     sync::{
         LazyLock,
@@ -435,29 +435,15 @@ impl App {
             ]))
         });
 
-        #[derive(Debug, Deserialize, Serialize)]
-        struct MetadataStruct {
-            authors: Vec<String>,
-            identifier: u64,
-            name: String,
-            date: String,
-            r#type: String,
-        }
-
         let bytes = dropped_file.bytes()?;
         trace!(?bytes);
         let mut reader = Cursor::new(&bytes);
-        // let mut buffer = String::new();
-        // let read = reader.read_line(&mut buffer)?;
-        let deserialized = ron::de::from_bytes::<MetadataStruct>(&bytes)?;
-        println!("deserialized: {}", ron::to_string(&deserialized)?);
-        let mut meta = Metadata::new();
-        meta.insert(AUTHORS.to_owned(), deserialized.authors.join(";"));
-        meta.insert(IDENTIFIER.to_owned(), deserialized.identifier.to_string());
-        meta.insert(NAME.to_owned(), deserialized.name.to_owned());
-        meta.insert(DATE.to_owned(), deserialized.date.to_owned());
-        meta.insert(TYPE.to_owned(), deserialized.r#type.to_owned());
-        println!("meta: {meta}");
+        // Meta
+        let mut buffer = String::new();
+        reader.read_line(&mut buffer)?;
+        let meta = ron::from_str::<MetadataStruct>(&buffer)?;
+        println!("deserialized: {}", ron::to_string(&meta)?);
+        println!("meta: {meta:?}");
 
         // // Turbidity{Authors=KGV;SRA;Identifier=c0a80094;Type=Turbidity}.2026-02-11-20-36-22
         // // (authors0["Kazakov Giorgi Vladimirovich","Sidorov Roman Alexandrovich"],identifier03232235668,name0"TheName",date0"2026-02-11-20-36-22",type0"Turbidity")
@@ -486,19 +472,33 @@ impl App {
             .with_has_header(false)
             .with_skip_rows(1)
             .into_reader_with_file_handle(reader)
-            .finish()?;
+            .finish()?
+            .lazy()
+            .select([
+                col(TIMESTAMP),
+                lit(meta.identifier)
+                    .cast(DataType::UInt64)
+                    .alias(IDENTIFIER),
+                col(TURBIDITY),
+            ])
+            .collect()?;
         println!("data: {data:?}");
-        let frame = MetaDataFrame::new(meta, HashedDataFrame::new(data)?);
+        let frame = MetaDataFrame::new(meta.into(), HashedDataFrame::new(data)?);
         let schema = frame.data.schema();
-        if TURBIDITY_SCHEMA.matches_schema(schema).is_ok() {
-            // .is_ok_and(|cast| !cast)
-            info!("TURBIDITY");
-            self.data.add(frame);
-        } else {
-            return Err(
-                polars_err!(SchemaMismatch: r#"Invalid dropped file schema: expected [`TURBIDITY`], got = `{schema:?}`"#),
-            )?;
-        }
+        // match &*meta.r#type {
+        //     TURBIDITY => {}
+        //     _ => {}
+        // }
+        self.data.add(frame);
+        // if TURBIDITY_SCHEMA.matches_schema(schema).is_ok() {
+        //     // .is_ok_and(|cast| !cast)
+        //     info!("TURBIDITY");
+        //     self.data.add(frame);
+        // } else {
+        //     return Err(
+        //         polars_err!(SchemaMismatch: r#"Invalid dropped file schema: expected [`TURBIDITY`], got = `{schema:?}`"#),
+        //     )?;
+        // }
 
         // let mut reader = ParquetReader::new(Cursor::new(bytes));
         // // let meta = reader.get_metadata()?;

@@ -1,11 +1,35 @@
 use std::collections::HashMap;
 
-use crate::utils::hashed::HashedMetaDataFrame;
-use chrono::NaiveDate;
+use crate::{
+    r#const::{IDENTIFIER, TYPE},
+    utils::hashed::HashedMetaDataFrame,
+};
+use chrono::{DateTime, Local, NaiveDate};
 use itertools::Itertools as _;
 use metadata::{AUTHORS, DATE, DEFAULT_VERSION, DESCRIPTION, Metadata, NAME, PARAMETERS, VERSION};
 
 const DATE_FORMAT: &str = "%Y-%m-%d";
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct MetadataStruct {
+    pub(crate) authors: Vec<String>,
+    pub(crate) identifier: u64,
+    pub(crate) name: String,
+    pub(crate) date_time: DateTime<Local>,
+    pub(crate) r#type: String,
+}
+
+impl From<MetadataStruct> for Metadata {
+    fn from(value: MetadataStruct) -> Self {
+        let mut metadata = Metadata::new();
+        metadata.insert(AUTHORS.to_owned(), value.authors.join(";"));
+        metadata.insert(IDENTIFIER.to_owned(), value.identifier.to_string());
+        metadata.insert(NAME.to_owned(), value.name.to_owned());
+        metadata.insert(DATE.to_owned(), value.date_time.to_string());
+        metadata.insert(TYPE.to_owned(), value.r#type.to_owned());
+        metadata
+    }
+}
 
 pub fn join(frames: &[HashedMetaDataFrame]) -> Metadata {
     let mut meta = Metadata::default();
@@ -124,6 +148,7 @@ use nom::{
     multi::separated_list0,
     sequence::{delimited, preceded, separated_pair},
 };
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, PartialEq)]
 pub struct Parsed<'a> {
