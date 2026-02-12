@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::utils::hashed::HashedMetaDataFrame;
 use chrono::NaiveDate;
 use itertools::Itertools as _;
@@ -92,6 +94,10 @@ pub(crate) fn parameters(frames: &[HashedMetaDataFrame]) -> String {
         .join(";")
 }
 
+// pub(crate) fn parse_parameters(string: &str) -> String {
+//     string.split(";")
+// }
+
 pub fn longest_common_prefix(strings: Vec<&str>) -> &str {
     if strings.is_empty() {
         return "";
@@ -108,4 +114,62 @@ pub fn longest_common_prefix(strings: Vec<&str>) -> &str {
         }
     }
     prefix
+}
+
+use nom::{
+    IResult, Parser,
+    bytes::complete::{is_not, tag, take_till, take_until, take_while},
+    character::complete::char,
+    combinator::{map, opt, rest},
+    multi::separated_list0,
+    sequence::{delimited, preceded, separated_pair},
+};
+
+#[derive(Debug, PartialEq)]
+pub struct Parsed<'a> {
+    pub name: &'a str,
+    pub parameters: HashMap<&'a str, &'a str>,
+    pub version: Option<&'a str>,
+    pub timestamp: Option<&'a str>,
+}
+
+// #[derive(Debug, PartialEq)]
+// pub struct Parameter<'a> {
+//     pub key: &'a str,
+//     pub value: Option<&'a str>,
+// }
+
+pub fn parse(input: &str) -> IResult<&str, Metadata> {
+    let mut metadata = Metadata::new();
+    // Читаем имя
+    let (input, name) = take_till(|c| c == '{' || c == '[' || c == '.')(input)?;
+    metadata.insert(NAME.to_owned(), name.to_owned());
+    // Читаем параметры (опционально)
+    let (input, parameters) = opt(delimited(
+        char('{'),
+        separated_list0(
+            char(';'),
+            separated_pair(
+                take_until("="),
+                char('='),
+                take_while(|c| c != ';' && c != '}'),
+            ),
+        ),
+        char('}'),
+    ))
+    .parse(input)?;
+    for (key, value) in parameters.into_iter().flatten() {
+        metadata.insert(key.to_owned(), value.to_owned());
+    }
+    // Читаем версию (опционально)
+    let (input, version) = opt(delimited(char('['), take_until("]"), char(']'))).parse(input)?;
+    if let Some(version) = version {
+        metadata.insert(VERSION.to_owned(), version.to_owned());
+    }
+    // Читаем дату (опционально)
+    let (input, timestamp) = opt(preceded(tag("."), rest)).parse(input)?;
+    if let Some(timestamp) = timestamp {
+        metadata.insert(DATE.to_owned(), timestamp.to_owned());
+    }
+    Ok((input, metadata))
 }

@@ -98,7 +98,7 @@ impl Data {
                 let mut changed = false;
                 // Checkbox
                 let mut checked = self.selected.contains(frame);
-                let icon = match frame.data.column_iter().nth(1) {
+                let icon = match frame.data.column_iter().last() {
                     Some(column) if column.name() == TURBIDITY => DROP_HALF,
                     _ => "",
                 };

@@ -16,11 +16,6 @@ use std::ops::Range;
 use tracing::{error, instrument};
 
 const MARGIN: Vec2 = vec2(4.0, 2.0);
-
-// const INDEX: usize = 0;
-// const IDENTIFIER: usize = 1;
-// const TIMESTAMP: usize = 2;
-// const VALUE: usize = 3;
 const LEN: usize = 4;
 
 /// Turbidity table view
@@ -69,17 +64,17 @@ impl View<'_> {
             (0, top::INDEX) => {
                 ui.heading(HASH).on_hover_localized("index.hover");
             }
-            (0, top::IDENTIFIER) => {
-                ui.heading(ui.localize("identifier"))
-                    .on_hover_localized("identifier.hover");
-            }
             (0, top::TIMESTAMP) => {
                 ui.heading(ui.localize("timestamp"))
                     .on_hover_localized("timestamp.hover");
             }
+            (0, top::IDENTIFIER) => {
+                ui.heading(ui.localize("identifier"))
+                    .on_hover_localized("identifier.hover");
+            }
             (0, top::TURBIDITY) => {
-                ui.heading(ui.localize("value"))
-                    .on_hover_localized("value.hover");
+                ui.heading(ui.localize("Turbidity"))
+                    .on_hover_localized("Turbidity.hover");
             }
             _ => {}
         };

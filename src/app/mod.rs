@@ -11,11 +11,14 @@ use crate::{
             },
         },
     },
-    r#const::{IDENTIFIER, TIMESTAMP, TURBIDITY},
+    r#const::{IDENTIFIER, TIMESTAMP, TURBIDITY, TYPE},
     localization::ContextExt as _,
-    utils::hashed::{HashedDataFrame, HashedMetaDataFrame},
+    utils::{
+        hashed::{HashedDataFrame, HashedMetaDataFrame},
+        metadata::{Parsed, parse},
+    },
 };
-use anyhow::{Error, Result};
+use anyhow::{Error, Result, anyhow};
 use arrow::temporal_conversions::timestamp_ms_to_datetime;
 use eframe::{APP_KEY, CreationContext, Storage, get_value, set_value};
 use egui::{
@@ -35,14 +38,14 @@ use egui_phosphor::{
 };
 use egui_tiles::{ContainerKind, Tile, Tree};
 use egui_tiles_ext::{TilesExt as _, TreeExt as _, VERTICAL};
-use metadata::{DATE, Metadata, NAME, polars::MetaDataFrame};
+use metadata::{AUTHORS, DATE, Metadata, NAME, PARAMETERS, VERSION, polars::MetaDataFrame};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     fmt::Write,
     future::Future,
-    io::Cursor,
+    io::{BufRead, Cursor, Seek, SeekFrom},
     str,
     sync::{
         LazyLock,
@@ -50,6 +53,7 @@ use std::{
     },
 };
 use tracing::{error, info, instrument, trace};
+use urlencoding::encode;
 
 const ID_SOURCE: &str = "BLCS";
 
@@ -409,6 +413,17 @@ impl App {
 
     #[instrument(skip_all, err)]
     fn parse(&mut self, ctx: &Context, dropped_file: DroppedFile) -> Result<()> {
+        // /// Turbidity schema
+        // static TURBIDITY_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
+        //     Arc::new(Schema::from_iter([
+        //         Field::new(
+        //             PlSmallStr::from_static(TIMESTAMP),
+        //             DataType::Datetime(TimeUnit::Milliseconds, None),
+        //         ),
+        //         Field::new(PlSmallStr::from_static(IDENTIFIER), DataType::UInt64),
+        //         Field::new(PlSmallStr::from_static(TURBIDITY), DataType::UInt16),
+        //     ]))
+        // });
         /// Turbidity schema
         static TURBIDITY_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
             Arc::new(Schema::from_iter([
@@ -416,27 +431,63 @@ impl App {
                     PlSmallStr::from_static(TIMESTAMP),
                     DataType::Datetime(TimeUnit::Milliseconds, None),
                 ),
-                Field::new(PlSmallStr::from_static(IDENTIFIER), DataType::UInt64),
                 Field::new(PlSmallStr::from_static(TURBIDITY), DataType::UInt16),
             ]))
         });
 
-        // Bytes
+        #[derive(Debug, Deserialize, Serialize)]
+        struct MetadataStruct {
+            authors: Vec<String>,
+            identifier: u64,
+            name: String,
+            date: String,
+            r#type: String,
+        }
+
         let bytes = dropped_file.bytes()?;
         trace!(?bytes);
-        // Csv
+        let mut reader = Cursor::new(&bytes);
+        // let mut buffer = String::new();
+        // let read = reader.read_line(&mut buffer)?;
+        let deserialized = ron::de::from_bytes::<MetadataStruct>(&bytes)?;
+        println!("deserialized: {}", ron::to_string(&deserialized)?);
+        let mut meta = Metadata::new();
+        meta.insert(AUTHORS.to_owned(), deserialized.authors.join(";"));
+        meta.insert(IDENTIFIER.to_owned(), deserialized.identifier.to_string());
+        meta.insert(NAME.to_owned(), deserialized.name.to_owned());
+        meta.insert(DATE.to_owned(), deserialized.date.to_owned());
+        meta.insert(TYPE.to_owned(), deserialized.r#type.to_owned());
+        println!("meta: {meta}");
+
+        // // Turbidity{Authors=KGV;SRA;Identifier=c0a80094;Type=Turbidity}.2026-02-11-20-36-22
+        // // (authors0["Kazakov Giorgi Vladimirovich","Sidorov Roman Alexandrovich"],identifier03232235668,name0"TheName",date0"2026-02-11-20-36-22",type0"Turbidity")
+        // let t = MyStruct {
+        //     authors: vec![
+        //         "Kazakov Giorgi Vladimirovich".to_owned(),
+        //         "Sidorov Roman Alexandrovich".to_owned(),
+        //     ],
+        //     identifier: 0xc0a80094,
+        //     name: "TheName".to_owned(),
+        //     date: "2026-02-11-20-36-22".to_owned(),
+        //     r#type: "Turbidity".to_owned(),
+        // };
+        // let deserialized = ron::from_bytes()?;
+        // let encoded = encode(&serialized);
+
+        // Data
+        // let data = LazyCsvReader::new_with_sources(ScanSources::Buffers(Arc::new([bytes.into()])))
+        //     .with_has_header(true)
+        //     .with_schema(Some(TURBIDITY_SCHEMA.clone()))
+        //     .finish()?
+        //     .with_column(lit(&*meta[IDENTIFIER]).alias(IDENTIFIER))
+        //     .collect()?;
         let data = CsvReadOptions::default()
             .with_schema(Some(TURBIDITY_SCHEMA.clone()))
-            .with_has_header(true)
-            .into_reader_with_file_handle(Cursor::new(bytes))
+            .with_has_header(false)
+            .with_skip_rows(1)
+            .into_reader_with_file_handle(Cursor::new(&bytes[read..]))
             .finish()?;
-        let mut meta = Metadata::default();
-        let mut text = dropped_file.name().trim_end_matches(".csv");
-        if let Some((rest, date_time)) = text.rsplit_once(".") {
-            meta.insert(DATE.to_owned(), date_time.to_owned());
-            text = rest;
-        }
-        meta.insert(NAME.to_owned(), text.to_owned());
+        println!("data: {data:?}");
         let frame = MetaDataFrame::new(meta, HashedDataFrame::new(data)?);
         let schema = frame.data.schema();
         if TURBIDITY_SCHEMA.matches_schema(schema).is_ok() {
