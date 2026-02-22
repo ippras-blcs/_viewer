@@ -11,7 +11,7 @@ use crate::{
             },
         },
     },
-    r#const::{IDENTIFIER, TIMESTAMP, TURBIDITY, TYPE},
+    r#const::{IDENTIFIER, KIND, TIMESTAMP, TURBIDITY, TYPE},
     localization::ContextExt as _,
     utils::{
         hashed::{HashedDataFrame, HashedMetaDataFrame},
@@ -40,6 +40,7 @@ use egui_tiles::{ContainerKind, Tile, Tree};
 use egui_tiles_ext::{TilesExt as _, TreeExt as _, VERTICAL};
 use metadata::{AUTHORS, DATE, Metadata, NAME, PARAMETERS, VERSION, polars::MetaDataFrame};
 use polars::prelude::*;
+use protocol::meta::Metadata as ProtocolMetadata;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -435,28 +436,30 @@ impl App {
             ]))
         });
 
-        #[derive(Debug, Deserialize, Serialize)]
-        struct MetadataStruct {
-            authors: Vec<String>,
-            identifier: u64,
-            name: String,
-            date: String,
-            r#type: String,
-        }
+        // /// Metadata
+        // #[derive(Debug, Deserialize, Serialize)]
+        // struct MetadataStruct {
+        //     authors: Vec<String>,
+        //     identifier: u64,
+        //     name: String,
+        //     date: String,
+        //     r#type: String,
+        // }
 
         let bytes = dropped_file.bytes()?;
         trace!(?bytes);
         let mut reader = Cursor::new(&bytes);
-        // let mut buffer = String::new();
-        // let read = reader.read_line(&mut buffer)?;
-        let deserialized = ron::de::from_bytes::<MetadataStruct>(&bytes)?;
+        let mut buffer = String::new();
+        reader.read_line(&mut buffer)?;
+        // (authors:["Kazakov Giorgi Vladimirovich", "Sidorov Roman Alexandrovich"], date_time:"2026-02-16T20:25:17.769191+03:00", identifier:2522015810364357672, kind:Temperature, name:"The Name")
+        let deserialized = ron::de::from_bytes::<ProtocolMetadata>(&bytes)?;
         println!("deserialized: {}", ron::to_string(&deserialized)?);
         let mut meta = Metadata::new();
         meta.insert(AUTHORS.to_owned(), deserialized.authors.join(";"));
         meta.insert(IDENTIFIER.to_owned(), deserialized.identifier.to_string());
         meta.insert(NAME.to_owned(), deserialized.name.to_owned());
-        meta.insert(DATE.to_owned(), deserialized.date.to_owned());
-        meta.insert(TYPE.to_owned(), deserialized.r#type.to_owned());
+        meta.insert(DATE.to_owned(), deserialized.date_time.to_string());
+        meta.insert(KIND.to_owned(), format!("{:?}", deserialized.kind));
         println!("meta: {meta}");
 
         // // Turbidity{Authors=KGV;SRA;Identifier=c0a80094;Type=Turbidity}.2026-02-11-20-36-22

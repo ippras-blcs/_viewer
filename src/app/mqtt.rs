@@ -2,8 +2,8 @@ use anyhow::{Result, bail};
 use arrow::{array::RecordBatch, ipc::reader::StreamReader};
 use bytes::{Bytes, buf::Buf};
 use egui::{Context, Id};
-use object_store::{memory::InMemory, path::Path};
-use parquet::arrow::{AsyncArrowWriter, async_writer::ParquetObjectWriter};
+// use object_store::{memory::InMemory, path::Path};
+// use parquet::arrow::{AsyncArrowWriter, async_writer::ParquetObjectWriter};
 use std::{sync::Arc, time::Duration};
 use tracing::{error, instrument, trace};
 
@@ -102,13 +102,13 @@ fn read(bytes: Bytes) -> Result<RecordBatch> {
 
 #[instrument(err)]
 async fn write(context: &Context, path: &str, batch: &RecordBatch) -> Result<()> {
-    let store = context.data_mut(|data| {
-        data.get_temp_mut_or_insert_with(Id::new(path), || Arc::new(InMemory::new()))
-            .clone()
-    });
-    let writer = ParquetObjectWriter::new(store, Path::from(path));
-    let mut writer = AsyncArrowWriter::try_new(writer, batch.schema(), None)?;
-    writer.write(batch).await?;
-    writer.close().await?;
+    // let store = context.data_mut(|data| {
+    //     data.get_temp_mut_or_insert_with(Id::new(path), || Arc::new(InMemory::new()))
+    //         .clone()
+    // });
+    // let writer = ParquetObjectWriter::new(store, Path::from(path));
+    // let mut writer = AsyncArrowWriter::try_new(writer, batch.schema(), None)?;
+    // writer.write(batch).await?;
+    // writer.close().await?;
     Ok(())
 }

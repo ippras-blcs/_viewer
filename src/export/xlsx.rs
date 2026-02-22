@@ -43,7 +43,7 @@ mod web {
 fn write(data_frame: &DataFrame, worksheet: &mut Worksheet) -> Result<()> {
     let mut names = vec![];
     // Iterate through the dataframe column by column.
-    for (index, series) in data_frame.iter().enumerate() {
+    for (index, series) in data_frame.materialized_column_iter().enumerate() {
         let col = index as u16;
 
         // Store the column names for use as table headers.
