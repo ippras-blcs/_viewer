@@ -44,7 +44,7 @@ impl Settings {
         }
     }
 
-    pub(crate) fn show(&mut self, ui: &mut Ui, data_frame: &DataFrame) {
+    pub(crate) fn show(&mut self, ui: &mut Ui) {
         Grid::new("TableSettings").show(ui, |ui| -> PolarsResult<()> {
             // Precision
             ui.label(ui.localize("precision"));
@@ -65,7 +65,7 @@ impl Settings {
             ui.labeled_separator(RichText::new(ui.localize("filter")).heading());
             ui.end_row();
 
-            self.filter.show(ui, data_frame)?;
+            // self.filter.show(ui)?;
             ui.end_row();
 
             // Sort

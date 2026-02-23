@@ -1,3 +1,5 @@
+use crate::app::states::settings::View;
+
 use self::{
     plot::Settings as PlotSettings,
     table::{Order, Settings as TableSettings, Sort},
@@ -6,7 +8,6 @@ use arrow::temporal_conversions::timestamp_ms_to_datetime;
 use chrono::{DateTime, FixedOffset, Local, Offset as _, TimeZone as _, Utc};
 use egui::{ComboBox, Grid, Ui};
 use egui_l20n::{ResponseExt as _, UiExt as _};
-use egui_phosphor::regular::{CHART_LINE, TABLE};
 use serde::{Deserialize, Serialize};
 
 /// Settings
@@ -27,39 +28,6 @@ impl Settings {
 
             plot: PlotSettings::new(),
             table: TableSettings::new(),
-        }
-    }
-}
-
-/// View
-#[derive(Clone, Copy, Debug, Default, Deserialize, Hash, PartialEq, Serialize)]
-pub(crate) enum View {
-    Plot,
-    #[default]
-    Table,
-}
-
-impl View {
-    pub(crate) fn text(&self) -> &'static str {
-        match self {
-            Self::Plot => "Plot",
-            Self::Table => "Table",
-        }
-    }
-
-    pub(crate) fn hover_text(&self) -> &'static str {
-        match self {
-            Self::Plot => "Plot.hover",
-            Self::Table => "Table.hover",
-        }
-    }
-}
-
-impl View {
-    pub(crate) const fn icon(&self) -> &str {
-        match self {
-            Self::Plot => CHART_LINE,
-            Self::Table => TABLE,
         }
     }
 }

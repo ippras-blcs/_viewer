@@ -2,11 +2,11 @@ use self::{
     plot::Settings as PlotSettings,
     table::{Order, Settings as TableSettings, Sort},
 };
+use crate::app::states::settings::View;
 use arrow::temporal_conversions::timestamp_ms_to_datetime;
 use chrono::{DateTime, FixedOffset, Local, Offset as _, TimeZone as _, Utc};
-use egui::{ComboBox, Grid, Ui};
+use egui::{CollapsingHeader, ComboBox, Grid, Ui};
 use egui_l20n::{ResponseExt as _, UiExt as _};
-use egui_phosphor::regular::{CHART_LINE, TABLE};
 use serde::{Deserialize, Serialize};
 
 /// Settings
@@ -27,39 +27,6 @@ impl Settings {
 
             plot: PlotSettings::new(),
             table: TableSettings::new(),
-        }
-    }
-}
-
-/// View
-#[derive(Clone, Copy, Debug, Default, Deserialize, Hash, PartialEq, Serialize)]
-pub(crate) enum View {
-    Plot,
-    #[default]
-    Table,
-}
-
-impl View {
-    pub(crate) fn text(&self) -> &'static str {
-        match self {
-            Self::Plot => "Plot",
-            Self::Table => "Table",
-        }
-    }
-
-    pub(crate) fn hover_text(&self) -> &'static str {
-        match self {
-            Self::Plot => "Plot.hover",
-            Self::Table => "Table.hover",
-        }
-    }
-}
-
-impl View {
-    pub(crate) const fn icon(&self) -> &str {
-        match self {
-            Self::Plot => CHART_LINE,
-            Self::Table => TABLE,
         }
     }
 }
@@ -91,6 +58,44 @@ impl View {
 
 impl Settings {
     pub(crate) fn show(&mut self, ui: &mut Ui) {
+        // Time zone
+        ui.horizontal(|ui| {
+            ui.label(ui.localize("time_zone"));
+            ComboBox::from_id_salt("time_zone")
+                .selected_text(ui.localize(self.time_zone.text()))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.time_zone,
+                        TimeZone::Utc,
+                        ui.localize(TimeZone::Utc.text()),
+                    )
+                    .on_hover_localized(TimeZone::Utc.hover_text());
+                    ui.selectable_value(
+                        &mut self.time_zone,
+                        TimeZone::Local,
+                        ui.localize(TimeZone::Local.text()),
+                    )
+                    .on_hover_localized(TimeZone::Local.hover_text());
+                })
+                .response
+                .on_hover_localized(self.time_zone.hover_text());
+        });
+        ui.separator();
+        // Table
+        CollapsingHeader::new(ui.localize("Table"))
+            .enabled(self.view == View::Table)
+            .open(Some(self.view == View::Table))
+            .show(ui, |ui| {
+                self.table.show(ui);
+            });
+        // Plot
+        CollapsingHeader::new(ui.localize("Plot"))
+            .enabled(self.view == View::Plot)
+            .open(Some(self.view == View::Plot))
+            .show(ui, |ui| {
+                self.plot.show(ui);
+            });
+
         // ui.horizontal(|ui| {
         //     ui.label("Temperature unit:");
         //     ComboBox::from_id_source("temperature_unit")
@@ -125,29 +130,6 @@ impl Settings {
         //         .response
         //         .on_hover_text(context.settings.concentration.unit.singular());
         // });
-        Grid::new(ui.next_auto_id()).show(ui, |ui| {
-            // Time zone
-            ui.label(ui.localize("time_zone"));
-            ComboBox::from_id_salt("time_zone")
-                .selected_text(ui.localize(self.time_zone.text()))
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(
-                        &mut self.time_zone,
-                        TimeZone::Utc,
-                        ui.localize(TimeZone::Utc.text()),
-                    )
-                    .on_hover_localized(TimeZone::Utc.hover_text());
-                    ui.selectable_value(
-                        &mut self.time_zone,
-                        TimeZone::Local,
-                        ui.localize(TimeZone::Local.text()),
-                    )
-                    .on_hover_localized(TimeZone::Local.hover_text());
-                })
-                .response
-                .on_hover_localized(self.time_zone.hover_text());
-            ui.end_row();
-        });
     }
 }
 

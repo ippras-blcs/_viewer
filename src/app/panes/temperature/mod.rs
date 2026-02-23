@@ -4,7 +4,7 @@ use crate::{
     app::{
         computers::temperature::table::{Computed as TableComputed, Key as TableKey},
         states::temperature::State,
-        widgets::buttons::{MetadataButton, ResetButton, ResizeButton, SettingsButton},
+        widgets::buttons::{MetadataButton, ResetButton, ResizeButton, SettingsButton, ViewButton},
     },
     utils::{hashed::HashedMetaDataFrame, metadata::join, polars::format_list_truncated},
 };
@@ -24,15 +24,6 @@ use std::fmt::{Debug, Display, from_fn};
 use tracing::instrument;
 
 const ID_SOURCE: &str = "Temperature";
-
-// pub(crate) static SCHEMA: LazyLock<Schema> = LazyLock::new(|| {
-//     Schema::from_iter([
-//         Field::new("Label".into(), DataType::String),
-//         field!(FATTY_ACID),
-//         Field::new(STEREOSPECIFIC_NUMBERS123.into(), DataType::Float64),
-//         Field::new(STEREOSPECIFIC_NUMBERS2.into(), DataType::Float64),
-//     ])
-// });
 
 /// Temperature pane
 #[derive(Default, Deserialize, Serialize)]
@@ -121,6 +112,8 @@ impl Pane {
         ui.separator();
         ResetButton::new(&mut state.settings.table.reset).ui(ui);
         ResizeButton::new(&mut state.settings.table.resizable).ui(ui);
+        ui.separator();
+        ViewButton::new(&mut state.settings.view).ui(ui);
         ui.separator();
         SettingsButton::new(&mut state.windows.open_settings).ui(ui);
         ui.separator();

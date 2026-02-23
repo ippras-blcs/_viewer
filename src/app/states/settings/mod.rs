@@ -1,3 +1,5 @@
+pub use self::view::View;
+
 use egui::{ComboBox, Grid, Id, Sense, Ui};
 use egui_l20n::UiExt as _;
 use egui_tiles::ContainerKind;
@@ -6,15 +8,15 @@ use std::hash::{Hash, Hasher};
 
 /// Settings
 #[derive(Clone, Debug, Deserialize, Hash, PartialEq, Serialize)]
-pub(crate) struct Settings {
-    pub(crate) layout: Layout,
-    pub(crate) left_panel: bool,
-    pub(crate) reactive: bool,
-    pub(crate) reset: bool,
+pub struct Settings {
+    pub layout: Layout,
+    pub left_panel: bool,
+    pub reactive: bool,
+    pub reset: bool,
 }
 
 impl Settings {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             layout: Layout::new(),
             left_panel: true,
@@ -25,7 +27,7 @@ impl Settings {
 }
 
 impl Settings {
-    pub(crate) fn show(&mut self, ui: &mut Ui) {
+    pub fn show(&mut self, ui: &mut Ui) {
         let id_salt = Id::new("Settings");
         Grid::new(id_salt).show(ui, |ui| {
             // Language
@@ -56,8 +58,8 @@ impl Default for Settings {
 
 /// Layout
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-pub(crate) struct Layout {
-    pub(crate) container_kind: Option<ContainerKind>,
+pub struct Layout {
+    pub container_kind: Option<ContainerKind>,
 }
 
 impl Layout {
@@ -75,3 +77,5 @@ impl Hash for Layout {
             .hash(state);
     }
 }
+
+pub mod view;

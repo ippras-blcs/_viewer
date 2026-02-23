@@ -30,6 +30,10 @@ Identifier = Identifier
 Timestamp = Timestamp
 Temperature = Temperature
 Turbidity = Turbidity
+Plot = Plot
+    .hover = View as plot
+Table = Table
+    .hover = View as table
 
 precision = Precision
 properties = Properties
@@ -52,10 +56,6 @@ descending_order = Descending
     .hover = Descending order
 browse = Browse
     .hover = Browse selected
-plot = Plot
-    .hover = View as plot
-table = Table
-    .hover = View as table
 
 plot = Plot
     .hover = General plot settings
