@@ -1,35 +1,10 @@
-use crate::{
-    r#const::{IDENTIFIER, KIND},
-    utils::hashed::HashedMetaDataFrame,
-};
-use chrono::{DateTime, Local, NaiveDate};
+use crate::utils::hashed::HashedMetaDataFrame;
+use chrono::NaiveDate;
 use itertools::Itertools as _;
 use metadata::{AUTHORS, DATE, DEFAULT_VERSION, DESCRIPTION, Metadata, NAME, PARAMETERS, VERSION};
-use protocol::Metadata as ProtocolMetadata;
 use std::collections::HashMap;
 
 const DATE_FORMAT: &str = "%Y-%m-%d";
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct ProtocolMetadata {
-    pub(crate) authors: Vec<String>,
-    pub(crate) identifier: u64,
-    pub(crate) name: String,
-    pub(crate) date_time: DateTime<Local>,
-    pub(crate) r#type: String,
-}
-
-impl From<ProtocolMetadata> for Metadata {
-    fn from(value: ProtocolMetadata) -> Self {
-        let mut metadata = Metadata::new();
-        metadata.insert(AUTHORS.to_owned(), value.authors.join(";"));
-        metadata.insert(IDENTIFIER.to_owned(), value.identifier.to_string());
-        metadata.insert(NAME.to_owned(), value.name.to_owned());
-        metadata.insert(DATE.to_owned(), value.date_time.to_string());
-        metadata.insert(KIND.to_owned(), value.kind.to_owned());
-        metadata
-    }
-}
 
 pub fn join(frames: &[HashedMetaDataFrame]) -> Metadata {
     let mut meta = Metadata::default();

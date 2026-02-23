@@ -1,8 +1,13 @@
-use crate::{r#const::TURBIDITY, utils::hashed::HashedMetaDataFrame};
+use crate::{
+    r#const::{KIND, TEMPERATURE, TURBIDITY},
+    utils::hashed::HashedMetaDataFrame,
+};
 use egui::{CentralPanel, Color32, Id, Label, MenuBar, RichText, ScrollArea, TopBottomPanel, Ui};
 use egui_dnd::dnd;
 use egui_l20n::{ResponseExt, UiExt as _};
-use egui_phosphor::regular::{BROWSERS, CHECK, DOTS_SIX_VERTICAL, DROP_HALF, TRASH};
+use egui_phosphor::regular::{
+    BROWSERS, CHECK, DOTS_SIX_VERTICAL, DROP, DROP_HALF, THERMOMETER, TRASH,
+};
 use metadata::egui::MetadataWidget;
 use polars::prelude::{Column, PlSmallStr};
 use serde::{Deserialize, Serialize};
@@ -98,8 +103,9 @@ impl Data {
                 let mut changed = false;
                 // Checkbox
                 let mut checked = self.selected.contains(frame);
-                let icon = match frame.data.columns().last() {
-                    Some(column) if column.name() == TURBIDITY => DROP_HALF,
+                let icon = match frame.meta.get(KIND).map(|kind| &**kind) {
+                    Some(TEMPERATURE) => THERMOMETER,
+                    Some(TURBIDITY) => DROP,
                     _ => "",
                 };
                 changed |= ui.checkbox(&mut checked, icon).changed();

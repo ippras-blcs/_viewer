@@ -15,22 +15,29 @@ const MARGIN: Vec2 = vec2(4.0, 2.0);
 /// Pane
 #[derive(Deserialize, Serialize)]
 pub(crate) enum Pane {
+    Temperature(temperature::Pane),
     Turbidity(turbidity::Pane),
 }
 
 impl Pane {
+    pub(crate) fn temperature(frames: Vec<HashedMetaDataFrame>) -> Self {
+        Self::Temperature(temperature::Pane::new(frames))
+    }
+
     pub(crate) fn turbidity(frames: Vec<HashedMetaDataFrame>) -> Self {
         Self::Turbidity(turbidity::Pane::new(frames))
     }
 
     pub(crate) const fn kind(&self) -> Kind {
         match self {
+            Self::Temperature(_) => Kind::Dtec,
             Self::Turbidity(_) => Kind::Atuc,
         }
     }
 
     pub(crate) fn title(&self) -> String {
         match self {
+            Self::Temperature(pane) => pane.title(),
             Self::Turbidity(pane) => pane.title(),
         }
     }
@@ -62,6 +69,7 @@ impl egui_tiles::Behavior<Pane> for Behavior {
 
     fn pane_ui(&mut self, ui: &mut Ui, tile_id: TileId, pane: &mut Pane) -> UiResponse {
         match pane {
+            Pane::Temperature(pane) => pane.ui(ui, self, tile_id),
             Pane::Turbidity(pane) => pane.ui(ui, self, tile_id),
         }
     }
@@ -110,6 +118,7 @@ impl Kind {
 //     pub(crate) const DDOC_V2: Self = Self::new(Kind::Ddoc(Ddoc::V2));
 //     pub(crate) const DTEC: Self = Self::new(Kind::Dtec);
 
+pub(crate) mod temperature;
 pub(crate) mod turbidity;
 
 // pub(crate) mod plot;

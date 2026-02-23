@@ -2,9 +2,9 @@ use super::ID_SOURCE;
 use crate::{
     app::{
         NAME_TEMPERATURE, YMDHMS,
-        states::turbidity::{State, settings::Settings},
+        states::temperature::{State, settings::Settings},
     },
-    r#const::{EM_DASH, IDENTIFIER, TIMESTAMP, TURBIDITY},
+    r#const::{EM_DASH, IDENTIFIER, TEMPERATURE, TIMESTAMP},
     utils::hashed::HashedDataFrame,
 };
 use egui::{Context, Frame, Id, Margin, RichText, TextStyle, TextWrapMode, Ui, Vec2, vec2};
@@ -18,7 +18,7 @@ use tracing::{error, instrument};
 const MARGIN: Vec2 = vec2(4.0, 2.0);
 const LEN: usize = 4;
 
-/// Turbidity table view
+/// Temperature table view
 #[derive(Debug)]
 pub(crate) struct View<'a> {
     frame: &'a HashedDataFrame,
@@ -64,17 +64,17 @@ impl View<'_> {
             (0, top::INDEX) => {
                 ui.heading(HASH).on_hover_localized("Index.hover");
             }
-            (0, top::TIMESTAMP) => {
-                ui.heading(ui.localize("Timestamp"))
-                    .on_hover_localized("Timestamp.hover");
-            }
             (0, top::IDENTIFIER) => {
                 ui.heading(ui.localize("Identifier"))
                     .on_hover_localized("Identifier.hover");
             }
-            (0, top::TURBIDITY) => {
-                ui.heading(ui.localize("Turbidity"))
-                    .on_hover_localized("Turbidity.hover");
+            (0, top::TIMESTAMP) => {
+                ui.heading(ui.localize("Timestamp"))
+                    .on_hover_localized("Timestamp.hover");
+            }
+            (0, top::TEMPERATURE) => {
+                ui.heading(ui.localize("Temperature"))
+                    .on_hover_localized("Temperature.hover");
             }
             _ => {}
         };
@@ -91,14 +91,6 @@ impl View<'_> {
             (row, top::INDEX) => {
                 ui.label(row.to_string());
             }
-            (row, top::TIMESTAMP) => {
-                let timestamp = self.frame[TIMESTAMP].datetime()?;
-                if let Some(timestamp) = timestamp.phys.get(row) {
-                    ui.label(self.settings.time_zone.format_time(timestamp, YMDHMS));
-                } else {
-                    ui.label(EM_DASH);
-                }
-            }
             (row, top::IDENTIFIER) => {
                 let identifier = self.frame[IDENTIFIER].u64()?;
                 if let Some(identifier) = identifier.get(row) {
@@ -107,10 +99,18 @@ impl View<'_> {
                     ui.label(EM_DASH);
                 }
             }
-            (row, top::TURBIDITY) => {
-                let turbidity = self.frame[TURBIDITY].u16()?;
-                if let Some(turbidity) = turbidity.get(row) {
-                    ui.label(turbidity.to_string());
+            (row, top::TIMESTAMP) => {
+                let timestamp = self.frame[TIMESTAMP].datetime()?;
+                if let Some(timestamp) = timestamp.phys.get(row) {
+                    ui.label(self.settings.time_zone.format_time(timestamp, YMDHMS));
+                } else {
+                    ui.label(EM_DASH);
+                }
+            }
+            (row, top::TEMPERATURE) => {
+                let temperature = self.frame[TEMPERATURE].f64()?;
+                if let Some(temperature) = temperature.get(row) {
+                    ui.label(temperature.to_string());
                 } else {
                     ui.label(EM_DASH);
                 }
@@ -151,7 +151,7 @@ mod top {
     use super::*;
 
     pub(super) const INDEX: Range<usize> = 0..1;
-    pub(super) const TIMESTAMP: Range<usize> = INDEX.end..INDEX.end + 1;
-    pub(super) const IDENTIFIER: Range<usize> = TIMESTAMP.end..TIMESTAMP.end + 1;
-    pub(super) const TURBIDITY: Range<usize> = IDENTIFIER.end..IDENTIFIER.end + 1;
+    pub(super) const IDENTIFIER: Range<usize> = INDEX.end..INDEX.end + 1;
+    pub(super) const TIMESTAMP: Range<usize> = IDENTIFIER.end..IDENTIFIER.end + 1;
+    pub(super) const TEMPERATURE: Range<usize> = TIMESTAMP.end..TIMESTAMP.end + 1;
 }

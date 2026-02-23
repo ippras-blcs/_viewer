@@ -11,7 +11,7 @@ use crate::{
             },
         },
     },
-    r#const::{IDENTIFIER, KIND, TIMESTAMP, TURBIDITY, TYPE},
+    r#const::{IDENTIFIER, KIND, TEMPERATURE, TIMESTAMP, TURBIDITY, TYPE},
     localization::ContextExt as _,
     utils::{
         hashed::{HashedDataFrame, HashedMetaDataFrame},
@@ -40,7 +40,7 @@ use egui_tiles::{ContainerKind, Tile, Tree};
 use egui_tiles_ext::{TilesExt as _, TreeExt as _, VERTICAL};
 use metadata::{AUTHORS, DATE, Metadata, NAME, PARAMETERS, VERSION, polars::MetaDataFrame};
 use polars::prelude::*;
-use protocol::meta::Metadata as ProtocolMetadata;
+use protocol::{Header, meta::Kind};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
@@ -374,7 +374,18 @@ impl App {
         if let Some(frames) =
             ctx.data_mut(|data| data.remove_temp::<Vec<HashedMetaDataFrame>>(Id::new("Browse")))
         {
-            self.tree.insert_pane::<VERTICAL>(Pane::turbidity(frames));
+            let kind = |name| {
+                frames
+                    .iter()
+                    .all(|frame| frame.meta.get(KIND).is_some_and(|kind| kind == name))
+            };
+            if kind(TEMPERATURE) {
+                self.tree.insert_pane::<VERTICAL>(Pane::temperature(frames));
+            } else if kind(TURBIDITY) {
+                self.tree.insert_pane::<VERTICAL>(Pane::turbidity(frames));
+            } else {
+                error!(KIND, ?frames);
+            }
         }
     }
 
@@ -407,24 +418,13 @@ impl App {
         }) {
             info!(?dropped_files);
             for dropped_file in dropped_files {
-                _ = self.parse(ctx, dropped_file);
+                _ = self.parse(dropped_file);
             }
         }
     }
 
     #[instrument(skip_all, err)]
-    fn parse(&mut self, ctx: &Context, dropped_file: DroppedFile) -> Result<()> {
-        // /// Turbidity schema
-        // static TURBIDITY_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
-        //     Arc::new(Schema::from_iter([
-        //         Field::new(
-        //             PlSmallStr::from_static(TIMESTAMP),
-        //             DataType::Datetime(TimeUnit::Milliseconds, None),
-        //         ),
-        //         Field::new(PlSmallStr::from_static(IDENTIFIER), DataType::UInt64),
-        //         Field::new(PlSmallStr::from_static(TURBIDITY), DataType::UInt16),
-        //     ]))
-        // });
+    fn parse(&mut self, dropped_file: DroppedFile) -> Result<()> {
         /// Turbidity schema
         static TURBIDITY_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
             Arc::new(Schema::from_iter([
@@ -436,31 +436,26 @@ impl App {
             ]))
         });
 
-        // /// Metadata
-        // #[derive(Debug, Deserialize, Serialize)]
-        // struct MetadataStruct {
-        //     authors: Vec<String>,
-        //     identifier: u64,
-        //     name: String,
-        //     date: String,
-        //     r#type: String,
-        // }
+        /// Temperature schema
+        static TEMPERATURE_SCHEMA: LazyLock<SchemaRef> = LazyLock::new(|| {
+            Arc::new(Schema::from_iter([
+                Field::new(
+                    PlSmallStr::from_static(TIMESTAMP),
+                    DataType::Datetime(TimeUnit::Milliseconds, None),
+                ),
+                Field::new(PlSmallStr::from_static(TEMPERATURE), DataType::Float64),
+            ]))
+        });
 
         let bytes = dropped_file.bytes()?;
         trace!(?bytes);
         let mut reader = Cursor::new(&bytes);
+        // Meta
         let mut buffer = String::new();
         reader.read_line(&mut buffer)?;
-        // (authors:["Kazakov Giorgi Vladimirovich", "Sidorov Roman Alexandrovich"], date_time:"2026-02-16T20:25:17.769191+03:00", identifier:2522015810364357672, kind:Temperature, name:"The Name")
-        let deserialized = ron::de::from_bytes::<ProtocolMetadata>(&bytes)?;
-        println!("deserialized: {}", ron::to_string(&deserialized)?);
-        let mut meta = Metadata::new();
-        meta.insert(AUTHORS.to_owned(), deserialized.authors.join(";"));
-        meta.insert(IDENTIFIER.to_owned(), deserialized.identifier.to_string());
-        meta.insert(NAME.to_owned(), deserialized.name.to_owned());
-        meta.insert(DATE.to_owned(), deserialized.date_time.to_string());
-        meta.insert(KIND.to_owned(), format!("{:?}", deserialized.kind));
-        println!("meta: {meta}");
+        let header = ron::from_str::<Header>(&buffer)?;
+        println!("deserialized: {}", ron::to_string(&header)?);
+        println!("header: {header:?}");
 
         // // Turbidity{Authors=KGV;SRA;Identifier=c0a80094;Type=Turbidity}.2026-02-11-20-36-22
         // // (authors0["Kazakov Giorgi Vladimirovich","Sidorov Roman Alexandrovich"],identifier03232235668,name0"TheName",date0"2026-02-11-20-36-22",type0"Turbidity")
@@ -478,30 +473,36 @@ impl App {
         // let encoded = encode(&serialized);
 
         // Data
+        let schema = match header.kind {
+            Kind::Temperature => TEMPERATURE_SCHEMA.clone(),
+            Kind::Turbidity => TURBIDITY_SCHEMA.clone(),
+        };
         // let data = LazyCsvReader::new_with_sources(ScanSources::Buffers(Arc::new([bytes.into()])))
+        //     .with_n_threads(Some(1))
         //     .with_has_header(true)
-        //     .with_schema(Some(TURBIDITY_SCHEMA.clone()))
+        //     .with_skip_rows(1)
+        //     .with_schema(Some(schema))
         //     .finish()?
-        //     .with_column(lit(&*meta[IDENTIFIER]).alias(IDENTIFIER))
+        //     .with_column(lit(header.identifier).alias(IDENTIFIER))
         //     .collect()?;
-        let data = CsvReadOptions::default()
-            .with_schema(Some(TURBIDITY_SCHEMA.clone()))
+        let mut data = CsvReadOptions::default()
+            .with_schema(Some(schema))
             .with_has_header(false)
             .with_skip_rows(1)
             .into_reader_with_file_handle(reader)
             .finish()?;
+        data.with_column(Column::new_scalar(
+            PlSmallStr::from_static(IDENTIFIER),
+            header.identifier.into(),
+            1,
+        ))?;
+        let mut columns = data.get_column_names();
+        // Переупорядочиваем [IDENTIFIER, TIMESTAMP, ...]
+        columns.rotate_right(1);
+        data = data.select(columns)?;
         println!("data: {data:?}");
-        let frame = MetaDataFrame::new(meta, HashedDataFrame::new(data)?);
-        let schema = frame.data.schema();
-        if TURBIDITY_SCHEMA.matches_schema(schema).is_ok() {
-            // .is_ok_and(|cast| !cast)
-            info!("TURBIDITY");
-            self.data.add(frame);
-        } else {
-            return Err(
-                polars_err!(SchemaMismatch: r#"Invalid dropped file schema: expected [`TURBIDITY`], got = `{schema:?}`"#),
-            )?;
-        }
+        let frame = MetaDataFrame::new(header.into(), HashedDataFrame::new(data)?);
+        self.data.add(frame);
 
         // let mut reader = ParquetReader::new(Cursor::new(bytes));
         // // let meta = reader.get_metadata()?;

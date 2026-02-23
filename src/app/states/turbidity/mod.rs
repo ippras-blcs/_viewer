@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) const ID_SOURCE: &str = "Turbidity";
 
-/// Configuration state
+/// Turbidity state
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub(crate) struct State {
     // #[serde(skip)]

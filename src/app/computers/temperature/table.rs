@@ -1,0 +1,84 @@
+use crate::{
+    app::states::temperature::settings::{
+        Settings,
+        table::{Order, Sort},
+    },
+    r#const::{IDENTIFIER, TIMESTAMP},
+    utils::hashed::{HashedDataFrame, HashedMetaDataFrame},
+};
+use egui::util::cache::{ComputerMut, FrameCache};
+use polars::prelude::*;
+use tracing::instrument;
+
+/// Table computed
+pub(crate) type Computed = FrameCache<Value, Computer>;
+
+/// Table computer
+#[derive(Default)]
+pub(crate) struct Computer;
+
+impl Computer {
+    #[instrument(skip(self), err)]
+    fn try_compute(&mut self, key: Key) -> PolarsResult<Value> {
+        let lazy_frames = key
+            .frames
+            .iter()
+            .map(|frame| frame.data.data_frame.clone().lazy())
+            .collect::<Vec<_>>();
+        let mut lazy_frame = concat(lazy_frames, UnionArgs::default())?;
+        // Filter
+        for identifier in &key.settings.table.filter.identifiers {
+            lazy_frame = lazy_frame.filter(col(IDENTIFIER).neq(lit(*identifier)));
+        }
+        // Sort
+        let mut sort_options = SortMultipleOptions::default();
+        if let Order::Descending = key.order {
+            sort_options = sort_options
+                .with_order_descending(true)
+                .with_nulls_last(true);
+        }
+        lazy_frame = match key.sort {
+            Sort::Identifier => lazy_frame.sort_by_exprs([col(IDENTIFIER)], sort_options),
+            Sort::Timestamp => lazy_frame.sort_by_exprs([col(TIMESTAMP)], sort_options),
+            Sort::Value => lazy_frame.sort_by_exprs([last().as_expr()], sort_options),
+        };
+        HashedDataFrame::new(lazy_frame.collect()?)
+    }
+}
+
+impl ComputerMut<Key<'_>, Value> for Computer {
+    fn compute(&mut self, key: Key) -> Value {
+        self.try_compute(key).unwrap()
+    }
+}
+
+/// Table key
+#[derive(Clone, Copy, Debug, Hash, PartialEq)]
+pub(crate) struct Key<'a> {
+    pub(crate) frames: &'a [HashedMetaDataFrame],
+    pub(crate) order: Order,
+    pub(crate) sort: Sort,
+    // pub(crate) filter: Vec<String>,
+    pub(crate) settings: &'a Settings,
+}
+
+impl<'a> Key<'a> {
+    pub(crate) fn new(frames: &'a [HashedMetaDataFrame], settings: &'a Settings) -> Self {
+        Self {
+            frames,
+            order: settings.table.order,
+            sort: settings.table.sort,
+            // filter: Vec::new(),
+            settings: &settings,
+            // ddof: settings.ddof,
+            // normalize_factors: settings.normalize_factors,
+            // percent: settings.percent,
+            // precision: settings.precision,
+            // significant: settings.significant,
+            // threshold: &settings.threshold,
+        }
+    }
+}
+
+/// Table value
+type Value = HashedDataFrame;

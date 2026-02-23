@@ -25,10 +25,11 @@ ToggleAll = Toggle all
 DeleteSelected = Delete selected
     .hover = Delete selected
 
-index = Index
-identifier = Identifier
-value = Value
-timestamp = Timestamp
+Index = Index
+Identifier = Identifier
+Timestamp = Timestamp
+Temperature = Temperature
+Turbidity = Turbidity
 
 precision = Precision
 properties = Properties
@@ -51,8 +52,6 @@ descending_order = Descending
     .hover = Descending order
 browse = Browse
     .hover = Browse selected
-temperature = Temperature
-turbidity = Turbidity
 plot = Plot
     .hover = View as plot
 table = Table
